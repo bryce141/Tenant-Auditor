@@ -26,14 +26,18 @@ Built as a portfolio project to demonstrate real-world API integration, security
 |---|---|---|
 | MFA Registration | CIS 1.1.1 | Detects users with no MFA method registered |
 | Conditional Access | CIS 1.1.2 | Flags tenants with no CA policies configured |
+| Named Locations | CIS 1.1.3 | Checks if trusted network locations are defined |
 | Legacy Auth Blocked | CIS 1.1.4 | Checks if legacy auth protocols are blocked |
-| Admin Role Hygiene | CIS 1.2.1 | Reviews privileged role assignments |
-| Mailbox Forwarding | CIS 6.1.1 | Detects external mail forwarding rules |
-| Stale Accounts | — | Flags accounts with no sign-in in 90+ days |
-| Risky Users | — | Surfaces Entra ID Identity Protection findings |
-| Guest Users | — | Enumerates external guest accounts |
-| Password Policy | CIS 2.1.1 | Checks for accounts with non-expiring passwords |
 | SSPR | CIS 1.1.5 | Verifies Self-Service Password Reset is enabled |
+| Admin Role Hygiene | CIS 1.2.1 | Reviews privileged role assignments, role stacking, and guests with roles |
+| PIM / Standing Roles | CIS 1.2.3 | Flags permanent privileged assignments with no PIM gating |
+| App Credential Expiry | CIS 1.3.1 | Detects expired or soon-expiring app secrets and SSO certs |
+| App Permissions | CIS 1.3.2 | Flags app registrations with overly broad API permissions |
+| Password Policy | CIS 2.1.1 | Checks for accounts with non-expiring passwords |
+| Mailbox Forwarding | CIS 6.1.1 | Detects external mail forwarding rules |
+| Stale Accounts | — | Flags accounts with no sign-in in 90+ days (requires P1/P2) |
+| Risky Users | — | Surfaces Entra ID Identity Protection findings (requires P2) |
+| Guest Users | — | Enumerates external guest accounts |
 
 ---
 
@@ -50,6 +54,7 @@ Built as a portfolio project to demonstrate real-world API integration, security
   - `IdentityRiskyUser.Read.All`
   - `MailboxSettings.Read`
   - `RoleManagement.Read.All`
+  - `Application.Read.All`
 
 ---
 
@@ -126,7 +131,10 @@ tenant-auditor/
 │       ├── guest_users.py
 │       ├── legacy_auth.py
 │       ├── password_policy.py
-│       └── sspr.py
+│       ├── sspr.py
+│       ├── pim_roles.py
+│       ├── app_registrations.py
+│       └── named_locations.py
 ```
 
 ---
