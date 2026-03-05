@@ -57,7 +57,7 @@ Built as a portfolio project to demonstrate real-world API integration, security
 
 **1. Clone the repo**
 ```bash
-git clone https://github.com/ayace/Tenant-Auditor.git
+git clone https://github.com/bryce141/Tenant-Auditor.git
 cd Tenant-Auditor
 ```
 
@@ -143,6 +143,6 @@ tenant-auditor/
 
 ## Notes
 
-- Checks requiring **Entra ID P1/P2** (stale accounts, risky users) gracefully degrade on free/developer tenants
+- Checks requiring **Entra ID P1/P2** (stale accounts, risky users) grfully degrade on free/developer tenants
 - All credentials are loaded from environment variables — never hardcoded
 - Each audit run is saved to `runs/` as JSON for historical tracking
