@@ -3,6 +3,8 @@
 A Python tool that connects to the **Microsoft Graph API** to audit an Entra ID (Azure AD) tenant's security posture, score it against **CIS Microsoft 365 Foundations Benchmark** controls, and generate a visual report.
 
 Built as a portfolio project to demonstrate real-world API integration, security engineering, and full-stack tooling.
+<img width="1918" height="903" alt="image" src="https://github.com/user-attachments/assets/9f3a0875-c10f-4342-9bf8-58544e8fb428" />
+
 
 ---
 
