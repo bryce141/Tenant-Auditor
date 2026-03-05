@@ -29,4 +29,20 @@ CIS_CONTROLS = {
         "id": "CIS 1.1.5",
         "title": "Ensure Self-Service Password Reset is enabled",
     },
+    "PIM / Standing Roles": {
+        "id": "CIS 1.2.3",
+        "title": "Ensure Microsoft Entra Privileged Identity Management is used for privileged roles",
+    },
+    "App Credential Expiry": {
+        "id": "CIS 1.3.1",
+        "title": "Ensure app registration credentials are rotated and not expired",
+    },
+    "App Permissions": {
+        "id": "CIS 1.3.2",
+        "title": "Ensure app registrations do not have overly broad API permissions",
+    },
+    "Named Locations": {
+        "id": "CIS 1.1.3",
+        "title": "Ensure named locations are defined for Conditional Access policies",
+    },
 }

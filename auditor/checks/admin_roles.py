@@ -1,4 +1,5 @@
 import requests
+from collections import defaultdict
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -17,11 +18,14 @@ HIGHLY_PRIVILEGED_ROLES = {
 def check_admin_roles(headers):
     resp = requests.get(f"{GRAPH_BASE}/directoryRoles", headers=headers)
     if resp.status_code == 403:
-        return {"error": "Requires RoleManagement.Read.All permission", "roles": []}
+        return {"error": "Requires RoleManagement.Read.All permission", "roles": [], "role_stacking": [], "guests_with_roles": []}
     resp.raise_for_status()
 
     roles = resp.json().get("value", [])
     results = []
+
+    # Track roles per user for stacking detection
+    user_roles = defaultdict(lambda: {"name": "", "upn": "", "user_type": "", "roles": []})
 
     for role in roles:
         role_id = role.get("roleTemplateId")
@@ -46,9 +50,38 @@ def check_admin_roles(headers):
             "is_privileged": is_privileged,
             "member_count": len(members),
             "members": [
-                {"name": m.get("displayName"), "upn": m.get("userPrincipalName")}
+                {
+                    "name": m.get("displayName"),
+                    "upn": m.get("userPrincipalName"),
+                    "user_type": m.get("userType", "Member"),
+                }
                 for m in members
             ]
         })
 
-    return {"roles": results}
+        for m in members:
+            uid = m.get("id", m.get("userPrincipalName", ""))
+            user_roles[uid]["name"] = m.get("displayName", "")
+            user_roles[uid]["upn"] = m.get("userPrincipalName", "")
+            user_roles[uid]["user_type"] = m.get("userType", "Member")
+            user_roles[uid]["roles"].append(role_name)
+
+    # Multi-role stacking: users with 2+ privileged roles
+    role_stacking = [
+        {"name": v["name"], "upn": v["upn"], "roles": v["roles"]}
+        for v in user_roles.values()
+        if len(v["roles"]) >= 2
+    ]
+
+    # Guests with any role assignment
+    guests_with_roles = [
+        {"name": v["name"], "upn": v["upn"], "roles": v["roles"]}
+        for v in user_roles.values()
+        if v.get("user_type") == "Guest"
+    ]
+
+    return {
+        "roles": results,
+        "role_stacking": role_stacking,
+        "guests_with_roles": guests_with_roles,
+    }

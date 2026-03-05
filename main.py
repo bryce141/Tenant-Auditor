@@ -14,6 +14,9 @@ from auditor.checks.guest_users import check_guest_users
 from auditor.checks.legacy_auth import check_legacy_auth
 from auditor.checks.password_policy import check_password_policy
 from auditor.checks.sspr import check_sspr
+from auditor.checks.pim_roles import check_pim_roles
+from auditor.checks.app_registrations import check_app_registrations
+from auditor.checks.named_locations import check_named_locations
 from auditor.scorer import calculate_score
 from auditor.reporter import generate_html, save_report
 
@@ -34,6 +37,9 @@ def run_audit():
         "legacy_auth":         check_legacy_auth(headers),
         "password_policy":     check_password_policy(headers),
         "sspr":                check_sspr(headers),
+        "pim_roles":           check_pim_roles(headers),
+        "app_registrations":   check_app_registrations(headers),
+        "named_locations":     check_named_locations(headers),
     }
     score = calculate_score(results)
     return results, score
