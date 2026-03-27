@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Settings — Tenant Auditor{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-2xl mx-auto w-full">
+  <div class="mb-6">
+    <h1 class="text-xl font-bold text-slate-100">Settings</h1>
+    <p class="text-sm text-slate-500 mt-0.5">Azure App Registration credentials for Microsoft Graph API</p>
+  </div>
+
+  {% if has_credentials %}
+  <div class="flex items-center gap-2 p-3 rounded-lg bg-emerald-900/30 border border-emerald-800/50 mb-6">
+    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+    <p class="text-sm text-emerald-300">Connected — credentials are configured</p>
+  </div>
+  {% else %}
+  <div class="flex items-center gap-2 p-3 rounded-lg bg-amber-900/30 border border-amber-800/50 mb-6">
+    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+    <p class="text-sm text-amber-300">Not connected — enter your Azure App Registration credentials below</p>
+  </div>
+  {% endif %}
+
+  <div class="card p-6">
+    <h2 class="text-sm font-semibold text-slate-200 mb-5">Azure App Registration</h2>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1.5">Tenant ID</label>
+        <input id="tenant_id" type="text" value="{{ tenant_id or '' }}"
+               placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+               class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors font-mono">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1.5">Client ID</label>
+        <input id="client_id" type="text" value="{{ client_id or '' }}"
+               placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+               class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors font-mono">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1.5">Client Secret</label>
+        <input id="client_secret" type="password"
+               placeholder="Enter client secret"
+               class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors font-mono">
+        <p class="text-xs text-slate-600 mt-1">Leave blank to keep existing secret.</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3 mt-6">
+      <button id="test-btn" onclick="testConnection()"
+              class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium rounded-lg transition-colors">
+        Test Connection
+      </button>
+      <button id="save-btn" onclick="saveSettings()"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors">
+        Save Credentials
+      </button>
+    </div>
+
+    <div id="result" class="mt-4 hidden">
+      <p id="result-msg" class="text-sm"></p>
+    </div>
+  </div>
+
+  <!-- Required Permissions -->
+  <div class="card p-6 mt-6">
+    <h2 class="text-sm font-semibold text-slate-200 mb-4">Required API Permissions</h2>
+    <p class="text-xs text-slate-500 mb-3">All permissions are Application type. Grant admin consent after adding.</p>
+    <div class="space-y-1">
+      {% set perms = [
+        ('User.Read.All', 'Users, MFA, sign-in activity'),
+        ('Directory.Read.All', 'Groups, roles, admin roles'),
+        ('Policy.Read.All', 'Conditional Access, SSPR, named locations'),
+        ('MailboxSettings.Read', 'Mailbox forwarding rules'),
+        ('AuditLog.Read.All', 'Sign-in logs'),
+        ('Reports.Read.All', 'SharePoint, OneDrive, Exchange, M365 app usage reports'),
+        ('Sites.Read.All', 'SharePoint site details'),
+        ('Group.Read.All', 'Group members and owners'),
+        ('Organization.Read.All', 'Tenant info, subscribed SKUs'),
+        ('RoleManagement.Read.All', 'PIM and role assignments'),
+        ('Application.Read.All', 'App registrations and service principals'),
+        ('DeviceManagementManagedDevices.Read.All', 'Intune compliance (optional)'),
+      ] %}
+      {% for perm, desc in perms %}
+      <div class="flex items-start gap-3 py-1.5 border-b border-slate-700/30 last:border-0">
+        <code class="text-xs text-blue-400 font-mono w-56 shrink-0">{{ perm }}</code>
+        <p class="text-xs text-slate-500">{{ desc }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function testConnection() {
+  const btn = document.getElementById('test-btn');
+  btn.disabled = true; btn.textContent = 'Testing…';
+  const payload = getPayload();
+  if (!payload) { btn.disabled = false; btn.textContent = 'Test Connection'; return; }
+  try {
+    const r = await fetch('/settings/api/test', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+    const data = await r.json();
+    showResult(data.status === 'ok' ? '✓ Connection successful!' : '✗ ' + (data.error || 'Failed'), data.status === 'ok');
+  } catch(e) { showResult('✗ Request failed', false); }
+  btn.disabled = false; btn.textContent = 'Test Connection';
+}
+
+async function saveSettings() {
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const payload = getPayload();
+  if (!payload) { btn.disabled = false; btn.textContent = 'Save Credentials'; return; }
+  try {
+    const r = await fetch('/settings/api/save', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+    const data = await r.json();
+    if (data.status === 'saved') {
+      showResult('✓ Credentials saved successfully!', true);
+      showToast('Credentials saved!');
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      showResult('✗ ' + (data.error || 'Save failed'), false);
+    }
+  } catch(e) { showResult('✗ Request failed', false); }
+  btn.disabled = false; btn.textContent = 'Save Credentials';
+}
+
+function getPayload() {
+  const tenant_id = document.getElementById('tenant_id').value.trim();
+  const client_id = document.getElementById('client_id').value.trim();
+  const client_secret = document.getElementById('client_secret').value.trim();
+  if (!tenant_id || !client_id) {
+    showResult('Tenant ID and Client ID are required.', false); return null;
+  }
+  return { tenant_id, client_id, client_secret };
+}
+
+function showResult(msg, success) {
+  const el = document.getElementById('result');
+  const msg_el = document.getElementById('result-msg');
+  el.classList.remove('hidden');
+  msg_el.textContent = msg;
+  msg_el.className = success ? 'text-sm text-emerald-400' : 'text-sm text-red-400';
+}
+</script>
+{% endblock %}

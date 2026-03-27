@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Users — Tenant Auditor{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-7xl mx-auto w-full">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-xl font-bold text-slate-100">Users & Activity</h1>
+      <p class="text-sm text-slate-500 mt-0.5">Sign-in activity, inactive users, and app usage</p>
+    </div>
+    <div class="flex items-center gap-3">
+      {% if report %}<span class="text-xs text-slate-500">Last run {{ report.created_at.strftime('%b %d %H:%M') }}</span>{% endif %}
+      <button id="run-btn" onclick="runReport('/users/api/run', 'run-btn', '/users/api/status')"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors">
+        {{ 'Running…' if running else 'Run Report' }}
+      </button>
+    </div>
+  </div>
+
+  {% if not report %}
+  <div class="card p-12 text-center">
+    <p class="text-slate-400 mb-2">No user activity data yet.</p>
+    <p class="text-slate-600 text-sm">Click "Run Report" to pull user data from your tenant.</p>
+  </div>
+  {% else %}
+
+  {% for check in report.checks %}
+  {% if check.check_name == 'user_activity' and check.details %}
+  {% set d = check.details %}
+
+  <!-- Activity Buckets -->
+  <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+    {% set buckets = [('7d', 'Active 7d', 'text-emerald-400'), ('30d', 'Active 30d', 'text-emerald-400'),
+                      ('90d', 'Active 90d', 'text-slate-100'), ('90d_plus', 'Inactive 90d+', 'text-amber-400'),
+                      ('never', 'Never signed in', 'text-red-400')] %}
+    {% for key, label, color in buckets %}
+    <div class="card p-4">
+      <p class="text-xs text-slate-500 mb-1">{{ label }}</p>
+      <p class="text-2xl font-bold {{ color }}">{{ d.buckets.get(key, 0) }}</p>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if check.issues %}
+  <div class="card p-4 mb-6 border-amber-500/30">
+    <p class="text-sm font-semibold text-amber-400 mb-2">⚠ {{ check.issues | length }} Licensed Users Inactive 90+ Days</p>
+    <div class="space-y-1">
+      {% for issue in check.issues[:10] %}
+        <p class="text-xs text-slate-500">↳ {{ issue }}</p>
+      {% endfor %}
+      {% if check.issues | length > 10 %}
+        <p class="text-xs text-slate-600">+{{ check.issues | length - 10 }} more</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- User Table -->
+  <div class="card mb-6">
+    <div class="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
+      <p class="font-semibold text-slate-200 text-sm">All Users</p>
+      <a href="{{ url_for('reports.export_csv', report_id=report.id) }}"
+         class="text-xs text-blue-400 hover:text-blue-300">Export CSV</a>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b border-slate-700/50">
+            <th class="px-5 py-3 text-left font-medium">User</th>
+            <th class="px-5 py-3 text-left font-medium">Last Sign-in</th>
+            <th class="px-5 py-3 text-left font-medium">Status</th>
+            <th class="px-5 py-3 text-left font-medium">Licensed</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-700/30">
+          {% for u in d.users %}
+          <tr class="hover:bg-slate-700/20">
+            <td class="px-5 py-3">
+              <p class="text-slate-200">{{ u.display_name }}</p>
+              <p class="text-xs text-slate-500">{{ u.user }}</p>
+            </td>
+            <td class="px-5 py-3 text-slate-400 text-xs">{{ u.last_signin[:10] if u.last_signin else '—' }}</td>
+            <td class="px-5 py-3">
+              {% set bucket_colors = {'7d': 'text-emerald-400', '30d': 'text-emerald-400', '90d': 'text-slate-300', '90d_plus': 'text-amber-400', 'never': 'text-red-400', 'no_data': 'text-slate-600'} %}
+              <span class="text-xs {{ bucket_colors.get(u.bucket, 'text-slate-500') }}">{{ u.bucket }}</span>
+            </td>
+            <td class="px-5 py-3">
+              <span class="text-xs {{ 'text-emerald-400' if u.has_license else 'text-slate-500' }}">
+                {{ 'Yes' if u.has_license else 'No' }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if check.check_name == 'app_usage' and check.details %}
+  <!-- App Usage Table -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-slate-700/50">
+      <p class="font-semibold text-slate-200 text-sm">M365 App Usage (30 days)</p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b border-slate-700/50">
+            <th class="px-5 py-3 text-left font-medium">User</th>
+            <th class="px-5 py-3 text-center font-medium">Teams</th>
+            <th class="px-5 py-3 text-center font-medium">Outlook</th>
+            <th class="px-5 py-3 text-center font-medium">SharePoint</th>
+            <th class="px-5 py-3 text-center font-medium">OneDrive</th>
+            <th class="px-5 py-3 text-left font-medium">Last Activity</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-700/30">
+          {% for u in check.details %}
+          <tr class="hover:bg-slate-700/20">
+            <td class="px-5 py-3 text-slate-300 text-xs">{{ u.display_name or u.user }}</td>
+            {% for app in ['teams', 'outlook', 'sharepoint', 'onedrive'] %}
+            <td class="px-5 py-3 text-center">
+              {% if u.get(app) == 'Yes' %}<span class="text-emerald-400">✓</span>
+              {% else %}<span class="text-slate-700">—</span>{% endif %}
+            </td>
+            {% endfor %}
+            <td class="px-5 py-3 text-xs text-slate-500">{{ u.last_activity or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  {% endif %}
+</div>
+{% endblock %}

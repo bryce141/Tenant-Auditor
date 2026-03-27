@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Groups — Tenant Auditor{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-7xl mx-auto w-full">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-xl font-bold text-slate-100">Groups</h1>
+      <p class="text-sm text-slate-500 mt-0.5">Group inventory, ownership, and lifecycle policy</p>
+    </div>
+    <div class="flex items-center gap-3">
+      {% if report %}<span class="text-xs text-slate-500">Last run {{ report.created_at.strftime('%b %d %H:%M') }}</span>{% endif %}
+      <button id="run-btn" onclick="runReport('/groups/api/run', 'run-btn', '/groups/api/status')"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors">
+        {{ 'Running…' if running else 'Run Report' }}
+      </button>
+    </div>
+  </div>
+
+  {% if not report %}
+  <div class="card p-12 text-center">
+    <p class="text-slate-400 mb-2">No group data yet.</p>
+    <p class="text-slate-600 text-sm">Requires Group.Read.All permission.</p>
+  </div>
+  {% else %}
+
+  {% for check in report.checks %}
+
+  {% if check.check_name == 'groups' and check.details %}
+  {% set d = check.details %}
+
+  <!-- Type breakdown cards -->
+  <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+    <div class="card p-4"><p class="text-xs text-slate-500 mb-1">Total</p><p class="text-2xl font-bold text-slate-100">{{ d.total }}</p></div>
+    <div class="card p-4"><p class="text-xs text-slate-500 mb-1">M365</p><p class="text-2xl font-bold text-slate-100">{{ d.type_counts.m365 }}</p></div>
+    <div class="card p-4"><p class="text-xs text-slate-500 mb-1">Security</p><p class="text-2xl font-bold text-slate-100">{{ d.type_counts.security }}</p></div>
+    <div class="card p-4"><p class="text-xs text-slate-500 mb-1">Distribution</p><p class="text-2xl font-bold text-slate-100">{{ d.type_counts.distribution }}</p></div>
+    <div class="card p-4">
+      <p class="text-xs text-slate-500 mb-1">Ownerless</p>
+      <p class="text-2xl font-bold {{ 'text-amber-400' if d.ownerless else 'text-slate-100' }}">{{ d.ownerless | length }}</p>
+    </div>
+  </div>
+
+  {% if d.ownerless %}
+  <div class="card p-4 mb-6 border border-amber-500/30">
+    <p class="text-sm font-semibold text-amber-400 mb-2">⚠ Ownerless Groups</p>
+    <div class="space-y-1">
+      {% for g in d.ownerless %}
+        <p class="text-xs text-slate-500">↳ {{ g.display_name }} ({{ g.type }}, {{ g.member_count }} members)</p>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if d.empty %}
+  <div class="card p-4 mb-6">
+    <p class="text-sm font-semibold text-slate-400 mb-2">Empty Groups</p>
+    <div class="space-y-1">
+      {% for g in d.empty %}
+        <p class="text-xs text-slate-500">↳ {{ g.display_name }} ({{ g.type }})</p>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Full group table -->
+  <div class="card mb-6">
+    <div class="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
+      <p class="font-semibold text-slate-200 text-sm">All Groups</p>
+      <div class="flex items-center gap-2">
+        <span class="text-xs px-2 py-0.5 rounded border badge-{{ check.status }}">{{ check.status }}</span>
+        <a href="{{ url_for('reports.export_csv', report_id=report.id) }}" class="text-xs text-blue-400 hover:text-blue-300">Export CSV</a>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-xs text-slate-500 border-b border-slate-700/50">
+          <th class="px-5 py-3 text-left font-medium">Name</th>
+          <th class="px-5 py-3 text-left font-medium">Type</th>
+          <th class="px-5 py-3 text-right font-medium">Members</th>
+          <th class="px-5 py-3 text-right font-medium">Owners</th>
+        </tr></thead>
+        <tbody class="divide-y divide-slate-700/30">
+          {% for g in d.groups %}
+          <tr class="hover:bg-slate-700/20">
+            <td class="px-5 py-3">
+              <p class="text-slate-200 text-sm">{{ g.display_name }}</p>
+              {% if g.mail %}<p class="text-xs text-slate-500">{{ g.mail }}</p>{% endif %}
+            </td>
+            <td class="px-5 py-3">
+              <span class="text-xs px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">{{ g.type }}</span>
+            </td>
+            <td class="px-5 py-3 text-right text-xs {{ 'text-amber-400' if g.member_count == 0 else 'text-slate-400' }}">
+              {{ g.member_count if g.member_count >= 0 else '—' }}
+            </td>
+            <td class="px-5 py-3 text-right text-xs {{ 'text-amber-400' if g.owner_count == 0 else 'text-slate-400' }}">
+              {{ g.owner_count if g.owner_count >= 0 else '—' }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if check.check_name == 'group_expiration' %}
+  <div class="card">
+    <div class="px-5 py-4 flex items-center justify-between">
+      <div>
+        <p class="font-semibold text-slate-200 text-sm">Group Expiration Policy</p>
+        <p class="text-xs text-slate-500 mt-0.5">{{ check.summary }}</p>
+      </div>
+      <span class="text-xs px-2 py-0.5 rounded border badge-{{ check.status }}">{{ check.status }}</span>
+    </div>
+    {% if check.details.get('policies') %}
+    <div class="px-5 pb-4 space-y-1">
+      {% for p in check.details.policies %}
+        <p class="text-xs text-slate-500">Lifetime: {{ p.lifetime_days }} days | Scope: {{ p.managed_group_types }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}

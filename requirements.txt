@@ -1,4 +1,6 @@
+flask
+flask-sqlalchemy
 msal
 requests
 python-dotenv
-flask
+gunicorn

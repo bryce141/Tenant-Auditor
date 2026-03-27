@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Reports — Tenant Auditor{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-7xl mx-auto w-full">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-xl font-bold text-slate-100">Reports</h1>
+      <p class="text-sm text-slate-500 mt-0.5">History of all audit runs</p>
+    </div>
+  </div>
+
+  {% if not reports %}
+  <div class="card p-12 text-center">
+    <p class="text-slate-400 mb-2">No reports yet.</p>
+    <p class="text-slate-600 text-sm">Run a report from any category page to get started.</p>
+  </div>
+  {% else %}
+  <div class="card">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b border-slate-700/50">
+            <th class="px-5 py-3 text-left font-medium">Type</th>
+            <th class="px-5 py-3 text-left font-medium">Date</th>
+            <th class="px-5 py-3 text-left font-medium">Status</th>
+            <th class="px-5 py-3 text-right font-medium">Score</th>
+            <th class="px-5 py-3 text-right font-medium">Checks</th>
+            <th class="px-5 py-3 text-right font-medium">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-700/30">
+          {% for r in reports %}
+          <tr class="hover:bg-slate-700/20">
+            <td class="px-5 py-3">
+              <span class="text-xs font-semibold px-2 py-0.5 rounded border
+                {{ 'badge-pass' if r.status == 'complete' else ('badge-fail' if r.status == 'failed' else 'badge-info') }}">
+                {{ r.report_type }}
+              </span>
+            </td>
+            <td class="px-5 py-3 text-slate-400 text-xs">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="px-5 py-3">
+              <span class="text-xs {{ 'text-emerald-400' if r.status == 'complete' else ('text-red-400' if r.status == 'failed' else 'text-blue-400') }}">
+                {{ r.status }}
+              </span>
+              {% if r.error %}<p class="text-xs text-red-500 mt-0.5 truncate max-w-xs">{{ r.error }}</p>{% endif %}
+            </td>
+            <td class="px-5 py-3 text-right">
+              {% if r.score is not none %}
+              <span class="font-bold text-sm {{ 'text-emerald-400' if r.score >= 80 else ('text-amber-400' if r.score >= 50 else 'text-red-400') }}">
+                {{ r.score }}/100
+              </span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="px-5 py-3 text-right text-slate-400 text-xs">{{ r.checks | length }}</td>
+            <td class="px-5 py-3 text-right">
+              <div class="flex items-center justify-end gap-3">
+                {% if r.status == 'complete' %}
+                <a href="{{ url_for('reports.export_csv', report_id=r.id) }}"
+                   class="text-xs text-blue-400 hover:text-blue-300">CSV</a>
+                {% endif %}
+                <button onclick="deleteReport('{{ r.id }}')"
+                        class="text-xs text-slate-600 hover:text-red-400 transition-colors">Delete</button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function deleteReport(id) {
+  if (!confirm('Delete this report?')) return;
+  const r = await fetch(`/reports/api/delete/${id}`, { method: 'DELETE' });
+  if (r.ok) { location.reload(); }
+  else { showToast('Failed to delete', 'error'); }
+}
+</script>
+{% endblock %}

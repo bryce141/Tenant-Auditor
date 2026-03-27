@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir c:UsersBryceProjectsclient-portalapp /s /b)",
+      "Bash(findstr /v venv)",
+      "Bash(venvScriptsactivate)",
+      "Bash(pip install flask-wtf)",
+      "Bash(xargs wc -l)",
+      "Bash(python -c \":*)",
+      "WebFetch(domain:docs.realitydefender.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(curl -s https://api.github.com/repos/bryce141/Client-Portal)"
+    ]
+  }
+}

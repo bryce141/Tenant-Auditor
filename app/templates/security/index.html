@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Security — Tenant Auditor{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-7xl mx-auto w-full">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-xl font-bold text-slate-100">Security</h1>
+      <p class="text-sm text-slate-500 mt-0.5">Identity, Conditional Access, and Mail Security checks</p>
+    </div>
+    <div class="flex items-center gap-3">
+      {% if score is not none %}
+      <div class="text-right">
+        <p class="text-2xl font-bold {{ 'text-emerald-400' if score >= 80 else ('text-amber-400' if score >= 50 else 'text-red-400') }}">{{ score }}/100</p>
+        <p class="text-xs text-slate-500">Security Score</p>
+      </div>
+      {% endif %}
+      <button id="run-btn"
+        onclick="runReport('/security/api/run/identity', 'run-btn', '/security/api/status/identity')"
+        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors">
+        Run Security
+      </button>
+    </div>
+  </div>
+
+  {% if not all_checks %}
+  <div class="card p-12 text-center">
+    <p class="text-slate-400 mb-2">No security data yet.</p>
+    <p class="text-slate-600 text-sm">Click "Run Security" to pull data from your tenant.</p>
+  </div>
+  {% else %}
+
+  <!-- Score Chart -->
+  {% if history %}
+  <div class="card p-5 mb-6">
+    <p class="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-4">Score History</p>
+    <canvas id="scoreChart" height="60"></canvas>
+  </div>
+  {% endif %}
+
+  <!-- Category Sections -->
+  {% set categories = [
+    ('identity', 'Identity & Access', 'MFA, admin roles, PIM, password policy'),
+    ('conditional_access', 'Conditional Access', 'CA policies, legacy auth, named locations'),
+    ('mail_security', 'Mail Security', 'Mailbox forwarding, app registrations'),
+  ] %}
+
+  {% for cat_key, cat_name, cat_desc in categories %}
+  {% set cat_report = reports.get(cat_key) %}
+  <div class="card mb-4">
+    <div class="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
+      <div>
+        <p class="font-semibold text-slate-200 text-sm">{{ cat_name }}</p>
+        <p class="text-xs text-slate-500 mt-0.5">{{ cat_desc }}</p>
+      </div>
+      <div class="flex items-center gap-3">
+        {% if cat_report %}
+          <span class="text-xs text-slate-500">{{ cat_report.created_at.strftime('%b %d %H:%M') }}</span>
+        {% endif %}
+        <button onclick="runReport('/security/api/run/{{ cat_key }}', 'run-{{ cat_key }}', '/security/api/status/{{ cat_key }}')"
+                id="run-{{ cat_key }}"
+                class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium rounded-lg transition-colors">
+          Run
+        </button>
+      </div>
+    </div>
+
+    {% if cat_report %}
+    <div class="divide-y divide-slate-700/30">
+      {% for check in cat_report.checks %}
+      <div class="px-5 py-3">
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="w-2 h-2 rounded-full shrink-0 status-dot-{{ check.status }}"></span>
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <p class="text-sm font-medium text-slate-200">{{ check.display_name }}</p>
+                {% if check.cis_reference %}
+                  <span class="text-xs bg-blue-900/50 text-blue-400 border border-blue-800/50 px-1.5 py-0.5 rounded font-mono">{{ check.cis_reference }}</span>
+                {% endif %}
+              </div>
+              <p class="text-xs text-slate-500 mt-0.5">{{ check.summary }}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 shrink-0">
+            {% if check.points_earned is not none %}
+              <span class="text-xs text-slate-400">{{ check.points_earned }}/{{ check.points_possible }} pts</span>
+            {% endif %}
+            <span class="text-xs px-2 py-0.5 rounded border font-medium badge-{{ check.status }}">{{ check.status }}</span>
+          </div>
+        </div>
+        {% if check.issues %}
+        <div class="mt-2 ml-5 space-y-0.5">
+          {% for issue in check.issues[:5] %}
+            <p class="text-xs text-slate-500">↳ {{ issue }}</p>
+          {% endfor %}
+          {% if check.issues | length > 5 %}
+            <p class="text-xs text-slate-600">↳ +{{ check.issues | length - 5 }} more…</p>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="px-5 py-6 text-center">
+      <p class="text-sm text-slate-600">No data — click Run to fetch.</p>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if history %}
+<script>
+  const ctx = document.getElementById('scoreChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: {{ history | map(attribute='date') | list | tojson }},
+      datasets: [{
+        data: {{ history | map(attribute='score') | list | tojson }},
+        borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)',
+        fill: true, tension: 0.4, pointBackgroundColor: '#3b82f6', pointRadius: 4,
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { min: 0, max: 100, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+        x: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }
+      }
+    }
+  });
+</script>
+{% endif %}
+{% endblock %}

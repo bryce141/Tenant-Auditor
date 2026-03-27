@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}SharePoint — Tenant Auditor{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-7xl mx-auto w-full">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-xl font-bold text-slate-100">SharePoint & OneDrive</h1>
+      <p class="text-sm text-slate-500 mt-0.5">Site usage, storage, sharing policies, and OneDrive activity</p>
+    </div>
+    <div class="flex items-center gap-3">
+      {% if report %}<span class="text-xs text-slate-500">Last run {{ report.created_at.strftime('%b %d %H:%M') }}</span>{% endif %}
+      <button id="run-btn" onclick="runReport('/sharepoint/api/run', 'run-btn', '/sharepoint/api/status')"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors">
+        {{ 'Running…' if running else 'Run Report' }}
+      </button>
+    </div>
+  </div>
+
+  {% if not report %}
+  <div class="card p-12 text-center">
+    <p class="text-slate-400 mb-2">No SharePoint data yet.</p>
+    <p class="text-slate-600 text-sm">Requires Reports.Read.All and Sites.Read.All permissions.</p>
+  </div>
+  {% else %}
+
+  {% for check in report.checks %}
+
+  {% if check.check_name == 'sharepoint_sites' and check.details %}
+  {% set d = check.details %}
+  <div class="grid grid-cols-3 gap-4 mb-6">
+    <div class="card p-5"><p class="text-xs text-slate-500 uppercase tracking-wider mb-2">Total Sites</p><p class="text-3xl font-bold text-slate-100">{{ d.total_sites }}</p></div>
+    <div class="card p-5"><p class="text-xs text-slate-500 uppercase tracking-wider mb-2">Inactive 90+ Days</p><p class="text-3xl font-bold {{ 'text-amber-400' if d.inactive else 'text-slate-100' }}">{{ d.inactive | length }}</p></div>
+    <div class="card p-5"><p class="text-xs text-slate-500 uppercase tracking-wider mb-2">Total Storage</p><p class="text-3xl font-bold text-slate-100">{{ d.total_storage_gb }} GB</p></div>
+  </div>
+
+  <div class="card mb-6">
+    <div class="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
+      <p class="font-semibold text-slate-200 text-sm">Site Inventory</p>
+      <div class="flex items-center gap-2">
+        <span class="text-xs px-2 py-0.5 rounded border badge-{{ check.status }}">{{ check.status }}</span>
+        <a href="{{ url_for('reports.export_csv', report_id=report.id) }}" class="text-xs text-blue-400 hover:text-blue-300">Export CSV</a>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-xs text-slate-500 border-b border-slate-700/50">
+          <th class="px-5 py-3 text-left font-medium">Site URL</th>
+          <th class="px-5 py-3 text-left font-medium">Owner</th>
+          <th class="px-5 py-3 text-right font-medium">Storage</th>
+          <th class="px-5 py-3 text-right font-medium">Files</th>
+          <th class="px-5 py-3 text-left font-medium">Last Activity</th>
+        </tr></thead>
+        <tbody class="divide-y divide-slate-700/30">
+          {% for site in d.sites %}
+          <tr class="hover:bg-slate-700/20 {{ 'opacity-60' if site.is_inactive }}">
+            <td class="px-5 py-3 text-xs text-slate-300 max-w-xs truncate">{{ site.url }}</td>
+            <td class="px-5 py-3 text-xs text-slate-400">{{ site.owner or '—' }}</td>
+            <td class="px-5 py-3 text-right text-xs text-slate-400">{{ site.storage_mb }} MB</td>
+            <td class="px-5 py-3 text-right text-xs text-slate-400">{{ site.file_count }}</td>
+            <td class="px-5 py-3 text-xs {{ 'text-amber-400' if site.is_inactive else 'text-slate-400' }}">
+              {{ site.last_activity or 'No activity' }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if check.check_name == 'external_sharing' %}
+  <div class="card mb-6">
+    <div class="px-5 py-4 flex items-center justify-between">
+      <div>
+        <p class="font-semibold text-slate-200 text-sm">External Sharing Policy</p>
+        <p class="text-xs text-slate-500 mt-0.5">{{ check.summary }}</p>
+      </div>
+      <span class="text-xs px-2 py-0.5 rounded border font-medium badge-{{ check.status }}">{{ check.status }}</span>
+    </div>
+    {% if check.issues %}
+    <div class="px-5 pb-4 space-y-1">
+      {% for issue in check.issues %}<p class="text-xs text-red-400">↳ {{ issue }}</p>{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if check.check_name == 'onedrive_usage' and check.details %}
+  {% set d = check.details %}
+  <div class="card">
+    <div class="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
+      <div>
+        <p class="font-semibold text-slate-200 text-sm">OneDrive Usage</p>
+        <p class="text-xs text-slate-500 mt-0.5">{{ check.summary }}</p>
+      </div>
+      <span class="text-xs px-2 py-0.5 rounded border badge-{{ check.status }}">{{ check.status }}</span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-xs text-slate-500 border-b border-slate-700/50">
+          <th class="px-5 py-3 text-left font-medium">User</th>
+          <th class="px-5 py-3 text-right font-medium">Storage</th>
+          <th class="px-5 py-3 text-right font-medium">Files</th>
+          <th class="px-5 py-3 text-left font-medium">Last Activity</th>
+        </tr></thead>
+        <tbody class="divide-y divide-slate-700/30">
+          {% for a in d.accounts %}
+          <tr class="hover:bg-slate-700/20">
+            <td class="px-5 py-3 text-xs text-slate-300">{{ a.user }}</td>
+            <td class="px-5 py-3 text-right text-xs text-slate-400">{{ a.storage_mb }} MB</td>
+            <td class="px-5 py-3 text-right text-xs text-slate-400">{{ a.file_count }}</td>
+            <td class="px-5 py-3 text-xs {{ 'text-amber-400' if a.is_inactive else 'text-slate-400' }}">
+              {{ a.last_activity or 'No activity' }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}

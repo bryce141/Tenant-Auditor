@@ -46,7 +46,9 @@ def run_audit():
 
 
 def save_run(tenant_id, results, score):
-    os.makedirs("runs", exist_ok=True)
+    from pathlib import Path
+    runs_dir = Path(os.getenv("DATA_DIR", ".")) / "runs"
+    os.makedirs(runs_dir, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     run = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -54,7 +56,7 @@ def save_run(tenant_id, results, score):
         "score": score,
         "results": results,
     }
-    path = os.path.join("runs", f"{timestamp}.json")
+    path = runs_dir / f"{timestamp}.json"
     with open(path, "w", encoding="utf-8") as f:
         json.dump(run, f, indent=2, default=str)
     return path

@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Licensing — Tenant Auditor{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-7xl mx-auto w-full">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-xl font-bold text-slate-100">Licensing</h1>
+      <p class="text-sm text-slate-500 mt-0.5">License assignment, usage, and wasted spend</p>
+    </div>
+    <div class="flex items-center gap-3">
+      {% if report %}<span class="text-xs text-slate-500">Last run {{ report.created_at.strftime('%b %d %H:%M') }}</span>{% endif %}
+      <button id="run-btn" onclick="runReport('/licensing/api/run', 'run-btn', '/licensing/api/status')"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors
+                     {{ 'opacity-60 cursor-not-allowed' if running }}">
+        {{ 'Running…' if running else 'Run Report' }}
+      </button>
+    </div>
+  </div>
+
+  {% if not report %}
+  <div class="card p-12 text-center">
+    <p class="text-slate-400 mb-2">No licensing data yet.</p>
+    <p class="text-slate-600 text-sm">Click "Run Report" to pull license data from your tenant.</p>
+  </div>
+  {% else %}
+
+  {% for check in report.checks %}
+  {% if check.check_name == 'license_summary' and check.details %}
+  {% set d = check.details %}
+
+  <!-- Summary Cards -->
+  <div class="grid grid-cols-3 gap-4 mb-6">
+    <div class="card p-5">
+      <p class="text-xs text-slate-500 uppercase tracking-wider mb-2">Total Assigned</p>
+      <p class="text-3xl font-bold text-slate-100">{{ d.total_assigned }}</p>
+    </div>
+    <div class="card p-5">
+      <p class="text-xs text-slate-500 uppercase tracking-wider mb-2">Unassigned / Wasted</p>
+      <p class="text-3xl font-bold {{ 'text-amber-400' if d.total_available > 0 else 'text-slate-100' }}">{{ d.total_available }}</p>
+    </div>
+    <div class="card p-5">
+      <p class="text-xs text-slate-500 uppercase tracking-wider mb-2">SKUs</p>
+      <p class="text-3xl font-bold text-slate-100">{{ d.skus | length }}</p>
+    </div>
+  </div>
+
+  <!-- SKU Table -->
+  <div class="card mb-6">
+    <div class="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
+      <p class="font-semibold text-slate-200 text-sm">License SKUs</p>
+      <span class="text-xs px-2 py-0.5 rounded border badge-{{ check.status }}">{{ check.status }}</span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b border-slate-700/50">
+            <th class="px-5 py-3 text-left font-medium">License</th>
+            <th class="px-5 py-3 text-right font-medium">Total</th>
+            <th class="px-5 py-3 text-right font-medium">Assigned</th>
+            <th class="px-5 py-3 text-right font-medium">Available</th>
+            <th class="px-5 py-3 text-right font-medium">Usage</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-700/30">
+          {% for sku in d.skus %}
+          {% set pct = ((sku.assigned / sku.total) * 100) | round | int if sku.total > 0 else 0 %}
+          <tr class="hover:bg-slate-700/20">
+            <td class="px-5 py-3 text-slate-200">{{ sku.name }}</td>
+            <td class="px-5 py-3 text-right text-slate-400">{{ sku.total }}</td>
+            <td class="px-5 py-3 text-right text-slate-400">{{ sku.assigned }}</td>
+            <td class="px-5 py-3 text-right {{ 'text-amber-400 font-medium' if sku.available > 0 else 'text-slate-400' }}">{{ sku.available }}</td>
+            <td class="px-5 py-3 text-right">
+              <div class="flex items-center justify-end gap-2">
+                <div class="w-16 bg-slate-700 rounded-full h-1.5">
+                  <div class="h-1.5 rounded-full {{ 'bg-emerald-500' if pct >= 80 else 'bg-blue-500' }}" style="width: {{ pct }}%"></div>
+                </div>
+                <span class="text-xs text-slate-500 w-8 text-right">{{ pct }}%</span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if check.check_name == 'user_licenses' and check.details %}
+  <!-- Per-User Table -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
+      <p class="font-semibold text-slate-200 text-sm">Per-User License Breakdown</p>
+      <div class="flex items-center gap-3">
+        {% if check.issues %}<span class="text-xs text-amber-400">{{ check.issues | length }} unlicensed users</span>{% endif %}
+        <a href="{{ url_for('reports.export_csv', report_id=report.id) }}"
+           class="text-xs text-blue-400 hover:text-blue-300">Export CSV</a>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b border-slate-700/50">
+            <th class="px-5 py-3 text-left font-medium">User</th>
+            <th class="px-5 py-3 text-left font-medium">Licenses</th>
+            <th class="px-5 py-3 text-right font-medium">Count</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-700/30">
+          {% for u in check.details %}
+          <tr class="hover:bg-slate-700/20 {{ 'opacity-60' if u.license_count == 0 }}">
+            <td class="px-5 py-3">
+              <p class="text-slate-200">{{ u.display_name }}</p>
+              <p class="text-xs text-slate-500">{{ u.user }}</p>
+            </td>
+            <td class="px-5 py-3 text-slate-400 text-xs">
+              {% if u.licenses %}{{ u.licenses | join(', ') }}{% else %}<span class="text-amber-400">None assigned</span>{% endif %}
+            </td>
+            <td class="px-5 py-3 text-right text-slate-400">{{ u.license_count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  {% endif %}
+</div>
+{% endblock %}

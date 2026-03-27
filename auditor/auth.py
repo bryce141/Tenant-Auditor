@@ -4,17 +4,23 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TENANT_ID = os.getenv("TENANT_ID")
-CLIENT_ID = os.getenv("CLIENT_ID")
-CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPE = ["https://graph.microsoft.com/.default"]
 
+
 def get_token():
+    # read credentials at call time so values set via the setup wizard are picked up
+    tenant_id = os.getenv("TENANT_ID")
+    client_id = os.getenv("CLIENT_ID")
+    client_secret = os.getenv("CLIENT_SECRET")
+
+    if not all([tenant_id, client_id, client_secret]):
+        raise Exception("Tenant credentials not configured. Visit /setup to connect your tenant.")
+
+    authority = f"https://login.microsoftonline.com/{tenant_id}"
     app = msal.ConfidentialClientApplication(
-        CLIENT_ID,
-        authority=AUTHORITY,
-        client_credential=CLIENT_SECRET
+        client_id,
+        authority=authority,
+        client_credential=client_secret,
     )
     result = app.acquire_token_for_client(scopes=SCOPE)
     if "access_token" in result:

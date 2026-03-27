@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Exchange — Tenant Auditor{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-7xl mx-auto w-full">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-xl font-bold text-slate-100">Exchange Online</h1>
+      <p class="text-sm text-slate-500 mt-0.5">Mailbox sizes, shared mailboxes, and distribution lists</p>
+    </div>
+    <div class="flex items-center gap-3">
+      {% if report %}<span class="text-xs text-slate-500">Last run {{ report.created_at.strftime('%b %d %H:%M') }}</span>{% endif %}
+      <button id="run-btn" onclick="runReport('/exchange/api/run', 'run-btn', '/exchange/api/status')"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors">
+        {{ 'Running…' if running else 'Run Report' }}
+      </button>
+    </div>
+  </div>
+
+  {% if not report %}
+  <div class="card p-12 text-center">
+    <p class="text-slate-400 mb-2">No Exchange data yet.</p>
+    <p class="text-slate-600 text-sm">Requires Reports.Read.All permission.</p>
+  </div>
+  {% else %}
+
+  {% for check in report.checks %}
+
+  {% if check.check_name == 'mailbox_usage' and check.details %}
+  {% set d = check.details %}
+  <div class="grid grid-cols-3 gap-4 mb-6">
+    <div class="card p-5"><p class="text-xs text-slate-500 uppercase tracking-wider mb-2">Total Mailboxes</p><p class="text-3xl font-bold text-slate-100">{{ d.mailboxes | length }}</p></div>
+    <div class="card p-5"><p class="text-xs text-slate-500 uppercase tracking-wider mb-2">Near Quota (80%+)</p><p class="text-3xl font-bold {{ 'text-amber-400' if d.near_quota else 'text-slate-100' }}">{{ d.near_quota | length }}</p></div>
+    <div class="card p-5"><p class="text-xs text-slate-500 uppercase tracking-wider mb-2">Total Storage</p><p class="text-3xl font-bold text-slate-100">{{ d.total_gb }} GB</p></div>
+  </div>
+
+  <div class="card mb-6">
+    <div class="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
+      <p class="font-semibold text-slate-200 text-sm">Mailbox Sizes</p>
+      <div class="flex items-center gap-2">
+        <span class="text-xs px-2 py-0.5 rounded border badge-{{ check.status }}">{{ check.status }}</span>
+        <a href="{{ url_for('reports.export_csv', report_id=report.id) }}" class="text-xs text-blue-400 hover:text-blue-300">Export CSV</a>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-xs text-slate-500 border-b border-slate-700/50">
+          <th class="px-5 py-3 text-left font-medium">User</th>
+          <th class="px-5 py-3 text-right font-medium">Used</th>
+          <th class="px-5 py-3 text-right font-medium">Quota</th>
+          <th class="px-5 py-3 text-right font-medium">Items</th>
+          <th class="px-5 py-3 text-right font-medium">Usage %</th>
+        </tr></thead>
+        <tbody class="divide-y divide-slate-700/30">
+          {% for m in d.mailboxes | sort(attribute='storage_bytes', reverse=true) %}
+          <tr class="hover:bg-slate-700/20">
+            <td class="px-5 py-3">
+              <p class="text-slate-200 text-xs">{{ m.display_name }}</p>
+              <p class="text-xs text-slate-500">{{ m.user }}</p>
+            </td>
+            <td class="px-5 py-3 text-right text-xs text-slate-400">{{ m.storage_gb }} GB</td>
+            <td class="px-5 py-3 text-right text-xs text-slate-400">{{ m.quota_gb }} GB</td>
+            <td class="px-5 py-3 text-right text-xs text-slate-400">{{ '{:,}'.format(m.item_count) }}</td>
+            <td class="px-5 py-3 text-right">
+              <span class="text-xs font-medium {{ 'text-amber-400' if m.is_near_quota else 'text-slate-400' }}">{{ m.usage_pct }}%</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if check.check_name == 'shared_mailboxes' and check.details %}
+  <div class="card mb-6">
+    <div class="px-5 py-4 border-b border-slate-700/50">
+      <p class="font-semibold text-slate-200 text-sm">Shared Mailboxes <span class="text-slate-500 font-normal">({{ check.details | length }})</span></p>
+    </div>
+    {% if check.details %}
+    <div class="divide-y divide-slate-700/30">
+      {% for m in check.details %}
+      <div class="px-5 py-3 flex items-center justify-between">
+        <div>
+          <p class="text-sm text-slate-200">{{ m.display_name }}</p>
+          <p class="text-xs text-slate-500">{{ m.mail or m.user }}</p>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="px-5 py-4 text-sm text-slate-600">No shared mailboxes found.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if check.check_name == 'distribution_lists' and check.details %}
+  <div class="card">
+    <div class="px-5 py-4 border-b border-slate-700/50">
+      <p class="font-semibold text-slate-200 text-sm">Distribution Lists <span class="text-slate-500 font-normal">({{ check.details | length }})</span></p>
+    </div>
+    {% if check.details %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-xs text-slate-500 border-b border-slate-700/50">
+          <th class="px-5 py-3 text-left font-medium">Name</th>
+          <th class="px-5 py-3 text-left font-medium">Email</th>
+          <th class="px-5 py-3 text-right font-medium">Members</th>
+        </tr></thead>
+        <tbody class="divide-y divide-slate-700/30">
+          {% for dl in check.details %}
+          <tr class="hover:bg-slate-700/20">
+            <td class="px-5 py-3 text-slate-200">{{ dl.display_name }}</td>
+            <td class="px-5 py-3 text-xs text-slate-400">{{ dl.mail or '—' }}</td>
+            <td class="px-5 py-3 text-right text-xs text-slate-400">{{ dl.member_count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="px-5 py-4 text-sm text-slate-600">No distribution lists found.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}

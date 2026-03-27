@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Tenant Auditor{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-7xl mx-auto w-full">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-xl font-bold text-slate-100">Dashboard</h1>
+      <p class="text-sm text-slate-500 mt-0.5">Overview of your M365 tenant</p>
+    </div>
+    <button id="run-all-btn" onclick="runReport('/api/run/full', 'run-all-btn', null)"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors">
+      Run Full Audit
+    </button>
+  </div>
+
+  <!-- Top metric cards -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <!-- Security Score -->
+    <div class="card p-5">
+      <p class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-2">Security Score</p>
+      {% if score is not none %}
+        {% set color = 'text-emerald-400' if score >= 80 else ('text-amber-400' if score >= 50 else 'text-red-400') %}
+        <p class="text-4xl font-bold {{ color }}">{{ score }}</p>
+        <p class="text-xs text-slate-500 mt-1">out of 100</p>
+      {% else %}
+        <p class="text-2xl font-bold text-slate-600">—</p>
+        <p class="text-xs text-slate-600 mt-1">No data yet</p>
+      {% endif %}
+    </div>
+
+    <!-- Users -->
+    {% set user_report = latest.get('users') %}
+    <div class="card p-5">
+      <p class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-2">Users</p>
+      {% if user_report %}
+        {% set activity_check = user_report.checks | selectattr('check_name', 'eq', 'user_activity') | first | default(none) %}
+        {% if activity_check and activity_check.details %}
+          <p class="text-4xl font-bold text-slate-100">{{ activity_check.details.users | length }}</p>
+          <p class="text-xs text-slate-500 mt-1">active accounts</p>
+        {% else %}
+          <p class="text-2xl font-bold text-slate-600">—</p>
+        {% endif %}
+      {% else %}
+        <p class="text-2xl font-bold text-slate-600">—</p>
+        <p class="text-xs text-slate-600 mt-1">Run Users report</p>
+      {% endif %}
+    </div>
+
+    <!-- Licenses -->
+    {% set lic_report = latest.get('licensing') %}
+    <div class="card p-5">
+      <p class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-2">Licenses</p>
+      {% if lic_report %}
+        {% set lic_check = lic_report.checks | selectattr('check_name', 'eq', 'license_summary') | first | default(none) %}
+        {% if lic_check and lic_check.details %}
+          <p class="text-4xl font-bold text-slate-100">{{ lic_check.details.total_assigned }}</p>
+          <p class="text-xs {{ 'text-amber-400' if lic_check.details.total_available > 0 else 'text-slate-500' }} mt-1">
+            {{ lic_check.details.total_available }} unassigned
+          </p>
+        {% else %}
+          <p class="text-2xl font-bold text-slate-600">—</p>
+        {% endif %}
+      {% else %}
+        <p class="text-2xl font-bold text-slate-600">—</p>
+        <p class="text-xs text-slate-600 mt-1">Run Licensing report</p>
+      {% endif %}
+    </div>
+
+    <!-- SharePoint Sites -->
+    {% set sp_report = latest.get('sharepoint') %}
+    <div class="card p-5">
+      <p class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-2">SharePoint Sites</p>
+      {% if sp_report %}
+        {% set sp_check = sp_report.checks | selectattr('check_name', 'eq', 'sharepoint_sites') | first | default(none) %}
+        {% if sp_check and sp_check.details %}
+          <p class="text-4xl font-bold text-slate-100">{{ sp_check.details.total_sites }}</p>
+          <p class="text-xs text-slate-500 mt-1">{{ sp_check.details.total_storage_gb }} GB used</p>
+        {% else %}
+          <p class="text-2xl font-bold text-slate-600">—</p>
+        {% endif %}
+      {% else %}
+        <p class="text-2xl font-bold text-slate-600">—</p>
+        <p class="text-xs text-slate-600 mt-1">Run SharePoint report</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+    <!-- Score Chart -->
+    {% if history %}
+    <div class="lg:col-span-2 card p-5">
+      <p class="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-4">Security Score History</p>
+      <canvas id="scoreChart" height="100"></canvas>
+    </div>
+    {% endif %}
+
+    <!-- Alerts -->
+    <div class="card p-5">
+      <p class="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-4">Alerts</p>
+      {% if alerts %}
+        <div class="space-y-2">
+          {% for alert in alerts %}
+          <a href="{{ alert.url }}" class="flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-slate-700/40 transition-colors">
+            <span class="mt-0.5 w-2 h-2 rounded-full shrink-0
+              {{ 'bg-red-400' if alert.type == 'fail' else 'bg-amber-400' }}"></span>
+            <div class="min-w-0">
+              <p class="text-xs font-semibold text-slate-300">{{ alert.category }}</p>
+              <p class="text-xs text-slate-500 truncate">{{ alert.message }}</p>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="text-center py-6">
+          <p class="text-slate-600 text-sm">No alerts — run reports to check your tenant.</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Recent Reports -->
+  {% if recent %}
+  <div class="card">
+    <div class="px-5 py-4 border-b border-slate-700/50">
+      <p class="text-sm font-semibold text-slate-200">Recent Reports</p>
+    </div>
+    <div class="divide-y divide-slate-700/50">
+      {% for r in recent %}
+      <div class="px-5 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-semibold px-2 py-0.5 rounded border
+            {{ 'badge-pass' if r.status == 'complete' else ('badge-fail' if r.status == 'failed' else 'badge-info') }}">
+            {{ r.report_type }}
+          </span>
+          <span class="text-sm text-slate-400">{{ r.created_at.strftime('%b %d, %Y %H:%M') }}</span>
+        </div>
+        <div class="flex items-center gap-3">
+          {% if r.score is not none %}
+            <span class="text-sm font-bold {{ 'text-emerald-400' if r.score >= 80 else ('text-amber-400' if r.score >= 50 else 'text-red-400') }}">
+              {{ r.score }}/100
+            </span>
+          {% endif %}
+          <a href="{{ url_for('reports.export_csv', report_id=r.id) }}"
+             class="text-xs text-blue-400 hover:text-blue-300">Export CSV</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if history %}
+<script>
+  const ctx = document.getElementById('scoreChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: {{ history | map(attribute='date') | list | tojson }},
+      datasets: [{
+        data: {{ history | map(attribute='score') | list | tojson }},
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.1)',
+        fill: true,
+        tension: 0.4,
+        pointBackgroundColor: '#3b82f6',
+        pointRadius: 4,
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { min: 0, max: 100, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+        x: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }
+      }
+    }
+  });
+</script>
+{% endif %}
+{% endblock %}

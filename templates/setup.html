@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connect Tenant — Tenant Security Auditor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f172a; color: #e2e8f0; min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 32px 16px;
+    }
+
+    .card {
+      background: #1e293b; border-radius: 14px; width: 100%; max-width: 560px;
+      border: 1px solid #334155; overflow: hidden;
+    }
+
+    /* ── Header ── */
+    .card-header {
+      padding: 28px 32px 20px;
+      border-bottom: 1px solid #334155;
+    }
+    .card-header h1 { font-size: 1.1em; font-weight: 700; color: #f1f5f9; letter-spacing: -0.2px; }
+    .card-header p { color: #64748b; font-size: 0.83em; margin-top: 3px; }
+
+    /* ── Views ── */
+    .view { display: none; padding: 28px 32px 32px; }
+    .view.active { display: block; }
+
+    /* ── Step list ── */
+    .step-list { list-style: none; counter-reset: sc; }
+    .step-list > li {
+      counter-increment: sc;
+      display: grid; grid-template-columns: 28px 1fr; gap: 14px;
+      padding: 14px 0; border-bottom: 1px solid #0f172a;
+      font-size: 0.875em; color: #94a3b8; line-height: 1.6;
+    }
+    .step-list > li:last-child { border-bottom: none; }
+    .step-num {
+      background: #0f172a; color: #3b82f6; font-weight: 700;
+      font-size: 0.78em; width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 1px;
+    }
+    .step-list b { color: #f1f5f9; font-weight: 600; }
+    .step-list code {
+      background: #0f172a; color: #7dd3fc; font-family: monospace;
+      font-size: 0.9em; padding: 1px 6px; border-radius: 4px;
+    }
+
+    /* ── Permissions grid ── */
+    .perm-grid {
+      display: flex; flex-wrap: wrap; gap: 5px;
+      background: #0f172a; border-radius: 8px; padding: 12px 14px; margin-top: 10px;
+    }
+    .perm-tag {
+      background: #1e3a5f; color: #7dd3fc; font-family: monospace;
+      font-size: 0.78em; padding: 3px 8px; border-radius: 4px; white-space: nowrap;
+    }
+
+    /* ── Credential fields ── */
+    .field { margin-bottom: 18px; }
+    .field label {
+      display: block; font-size: 0.77em; font-weight: 700; color: #64748b;
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
+    }
+    .field-hint {
+      font-size: 0.78em; color: #475569; margin-bottom: 7px; line-height: 1.5;
+    }
+    .field-hint b { color: #64748b; font-weight: 600; }
+    .field-hint em { font-style: normal; color: #7dd3fc; }
+    input[type="text"], input[type="password"] {
+      width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+      padding: 10px 13px; color: #f1f5f9; font-size: 0.88em; font-family: monospace;
+      outline: none; transition: border-color 0.15s;
+    }
+    input:focus { border-color: #3b82f6; }
+
+    /* ── Buttons ── */
+    .btn-row { display: flex; gap: 10px; margin-top: 24px; }
+    .btn {
+      flex: 1; padding: 11px 20px; border-radius: 8px; font-size: 0.9em;
+      font-weight: 600; cursor: pointer; border: none; transition: all 0.15s;
+    }
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-primary:disabled { background: #475569; cursor: not-allowed; }
+    .btn-ghost {
+      background: transparent; border: 1px solid #334155; color: #64748b; flex: 0 0 auto; padding: 11px 18px;
+    }
+    .btn-ghost:hover { border-color: #64748b; color: #94a3b8; }
+
+    .status-msg { font-size: 0.83em; margin-top: 11px; min-height: 18px; color: #64748b; }
+    .status-msg.ok { color: #22c55e; }
+    .status-msg.err { color: #ef4444; }
+
+    /* ── Success ── */
+    .success-view { display: none; padding: 44px 32px; text-align: center; }
+    .success-view.active { display: block; }
+    .check-circle {
+      width: 52px; height: 52px; border-radius: 50%; background: #14532d;
+      border: 2px solid #22c55e; display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 16px; font-size: 1.4em; color: #22c55e;
+    }
+    .success-view h2 { font-size: 1.1em; font-weight: 700; color: #f1f5f9; margin-bottom: 6px; }
+    .success-view p { color: #64748b; font-size: 0.85em; margin-bottom: 22px; }
+    .btn-dashboard {
+      display: inline-block; padding: 11px 32px; background: #3b82f6; color: #fff;
+      border-radius: 8px; font-size: 0.9em; font-weight: 600; cursor: pointer;
+      border: none; transition: background 0.15s; text-decoration: none;
+    }
+    .btn-dashboard:hover { background: #2563eb; }
+
+    .branding { font-size: 0.76em; color: #334155; margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+
+  <div class="card-header">
+    <h1>Connect your Microsoft 365 tenant</h1>
+    <p>You'll need Global Administrator access and about 5 minutes.</p>
+  </div>
+
+  <!-- ── View 1: App Registration setup ── -->
+  <div class="view active" id="view-setup">
+    <ol class="step-list">
+
+      <li>
+        <div class="step-num">1</div>
+        <div>
+          Go to <b>portal.azure.com</b> and sign in with your admin account.
+          In the top search bar, type <b>App registrations</b> and open it.
+        </div>
+      </li>
+
+      <li>
+        <div class="step-num">2</div>
+        <div>
+          Click <b>+ New registration</b>. Give it any name (e.g. <em style="color:#f1f5f9">Tenant Auditor</em>),
+          leave everything else as default, and click <b>Register</b>.
+        </div>
+      </li>
+
+      <li>
+        <div class="step-num">3</div>
+        <div>
+          On the app's <b>Overview</b> page, copy the <code>Application (client) ID</code>
+          and <code>Directory (tenant) ID</code> — you'll paste these in the next step.
+        </div>
+      </li>
+
+      <li>
+        <div class="step-num">4</div>
+        <div>
+          Open <b>API permissions</b> in the left sidebar. Click <b>Add a permission → Microsoft Graph →
+          Application permissions</b>. Search for and add each of these:
+          <div class="perm-grid">
+            <span class="perm-tag">User.Read.All</span>
+            <span class="perm-tag">Policy.Read.All</span>
+            <span class="perm-tag">UserAuthenticationMethod.Read.All</span>
+            <span class="perm-tag">AuditLog.Read.All</span>
+            <span class="perm-tag">Directory.Read.All</span>
+            <span class="perm-tag">IdentityRiskyUser.Read.All</span>
+            <span class="perm-tag">RoleManagement.Read.All</span>
+            <span class="perm-tag">Application.Read.All</span>
+            <span class="perm-tag">MailboxSettings.Read</span>
+          </div>
+        </div>
+      </li>
+
+      <li>
+        <div class="step-num">5</div>
+        <div>
+          Still on API permissions, click <b>Grant admin consent for [Your Org]</b> and confirm.
+          Each permission should show a green checkmark.
+        </div>
+      </li>
+
+      <li>
+        <div class="step-num">6</div>
+        <div>
+          Go to <b>Certificates &amp; secrets</b> in the left sidebar.
+          Click <b>New client secret</b>, give it any name, and click <b>Add</b>.
+          Immediately copy the <code>Value</code> — it's only shown once.
+          <br><span style="color:#475569;font-size:0.9em">Don't copy the Secret ID — you need the Value column.</span>
+        </div>
+      </li>
+
+    </ol>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="goToCredentials()">I've done this — enter credentials &rarr;</button>
+    </div>
+  </div>
+
+  <!-- ── View 2: Enter credentials ── -->
+  <div class="view" id="view-creds">
+
+    <div class="field">
+      <label>Tenant ID</label>
+      <div class="field-hint">App Overview page → <em>Directory (tenant) ID</em></div>
+      <input type="text" id="tenant_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" spellcheck="false">
+    </div>
+
+    <div class="field">
+      <label>Client ID</label>
+      <div class="field-hint">App Overview page → <em>Application (client) ID</em></div>
+      <input type="text" id="client_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" spellcheck="false">
+    </div>
+
+    <div class="field">
+      <label>Client Secret</label>
+      <div class="field-hint">Certificates &amp; secrets → the <em>Value</em> column (not Secret ID)</div>
+      <input type="password" id="client_secret" placeholder="Paste the secret Value here" autocomplete="off">
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goToSetup()">&larr; Back</button>
+      <button class="btn btn-primary" id="connectBtn" onclick="testConnection()">Connect tenant</button>
+    </div>
+    <div class="status-msg" id="statusMsg"></div>
+
+  </div>
+
+  <!-- ── Success ── -->
+  <div class="success-view" id="view-success">
+    <div class="check-circle">&#10003;</div>
+    <h2>Tenant connected</h2>
+    <p>Your credentials are saved. Run your first audit to see your security score.</p>
+    <button class="btn-dashboard" onclick="window.location.href='/'">Go to dashboard</button>
+  </div>
+
+</div>
+
+<div class="branding">Tenant Security Auditor</div>
+
+<script>
+  function goToCredentials() {
+    document.getElementById("view-setup").classList.remove("active");
+    document.getElementById("view-creds").classList.add("active");
+  }
+
+  function goToSetup() {
+    document.getElementById("view-creds").classList.remove("active");
+    document.getElementById("view-setup").classList.add("active");
+  }
+
+  async function testConnection() {
+    const tenantId = document.getElementById("tenant_id").value.trim();
+    const clientId = document.getElementById("client_id").value.trim();
+    const clientSecret = document.getElementById("client_secret").value.trim();
+    const statusEl = document.getElementById("statusMsg");
+    const btn = document.getElementById("connectBtn");
+
+    if (!tenantId || !clientId || !clientSecret) {
+      statusEl.textContent = "All three fields are required.";
+      statusEl.className = "status-msg err";
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "Connecting...";
+    statusEl.textContent = "Verifying with Microsoft Graph...";
+    statusEl.className = "status-msg";
+
+    try {
+      const res = await fetch("/api/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenant_id: tenantId, client_id: clientId, client_secret: clientSecret })
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        await fetch("/api/save-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tenant_id: tenantId, client_id: clientId, client_secret: clientSecret })
+        });
+        document.getElementById("view-creds").classList.remove("active");
+        document.getElementById("view-success").classList.add("active");
+      } else {
+        statusEl.textContent = "Failed: " + (data.error || "Check your credentials and try again.");
+        statusEl.className = "status-msg err";
+        btn.disabled = false;
+        btn.textContent = "Connect tenant";
+      }
+    } catch (e) {
+      statusEl.textContent = "Request failed. Is the server running?";
+      statusEl.className = "status-msg err";
+      btn.disabled = false;
+      btn.textContent = "Connect tenant";
+    }
+  }
+</script>
+</body>
+</html>
