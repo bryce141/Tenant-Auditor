@@ -5,6 +5,34 @@ saves results to the DB as Report + ReportCheck records.
 import threading
 from datetime import datetime
 
+# ---------------------------------------------------------------------------
+# Thread-safe progress store for the full audit run
+# ---------------------------------------------------------------------------
+_progress_lock = threading.Lock()
+_run_progress = {"step": 0, "total": 0, "message": "", "running": False, "category": ""}
+
+CATEGORY_LABELS = {
+    "identity": "Checking identity & MFA",
+    "conditional_access": "Checking conditional access policies",
+    "mail_security": "Checking mail security & app registrations",
+    "licensing": "Checking licenses",
+    "users": "Checking users & activity",
+    "sharepoint": "Checking SharePoint",
+    "exchange": "Checking Exchange mailboxes",
+    "groups": "Checking groups",
+}
+
+
+def _set_progress(step, total, message, running=True, category=""):
+    with _progress_lock:
+        _run_progress.update({"step": step, "total": total, "message": message,
+                               "running": running, "category": category})
+
+
+def get_run_progress():
+    with _progress_lock:
+        return dict(_run_progress)
+
 from app import db
 from app.auth.graph_auth import get_headers
 from app.models.report import Report, ReportCheck
@@ -117,15 +145,22 @@ def run_full(app_context):
         db.session.commit()
         report_id = report.id
 
+        categories = list(CATEGORY_MAP.items())
+        total = len(categories)
+        _set_progress(0, total, "Starting audit…", running=True)
+
         try:
             client = GraphClient(headers)
             all_results = []
 
-            for category, module in CATEGORY_MAP.items():
+            for i, (category, module) in enumerate(categories, 1):
+                label = CATEGORY_LABELS.get(category, f"Checking {category}")
+                _set_progress(i, total, label, running=True, category=category)
                 results = module.run_all(client)
                 _save_checks(report_id, results)
                 all_results.extend(r for r in results if isinstance(r, dict))
 
+            _set_progress(total, total, "Finalizing results…", running=True)
             security_checks = [r for r in all_results if r.get("category") in SECURITY_CATEGORIES
                                 and r.get("points_earned") is not None]
             score_data = calculate_security_score(security_checks)
@@ -140,6 +175,9 @@ def run_full(app_context):
             report.error = str(e)
             report.completed_at = datetime.utcnow()
             db.session.commit()
+
+        finally:
+            _set_progress(total, total, "Done", running=False)
 
         return report_id
 

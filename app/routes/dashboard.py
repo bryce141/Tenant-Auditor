@@ -1,15 +1,15 @@
-from flask import Blueprint, render_template, redirect, url_for, current_app
+from flask import Blueprint, render_template, redirect, url_for, current_app, jsonify
 from app.auth.graph_auth import has_credentials
 from app.models.report import Report, ReportCheck
-from app.services.report_runner import start_full_run, get_latest_report
+from app.services.report_runner import start_full_run, get_latest_report, get_run_progress
 
-bp = Blueprint("dashboard", __name__)
+bp = Blueprint("dashboard", __name__, url_prefix="/dashboard")
 
 
 @bp.route("/")
 def index():
     if not has_credentials():
-        return redirect(url_for("settings.index"))
+        return redirect(url_for("landing.index"))
 
     # Latest complete report per category for summary cards
     latest = {cat: get_latest_report(cat) for cat in
@@ -44,18 +44,33 @@ def index():
               .order_by(Report.created_at.desc())
               .limit(10).all())
 
+    # Extract MS Secure Score check
+    secure_score_check = None
+    identity_report = latest.get("identity")
+    if identity_report:
+        for c in identity_report.checks:
+            if c.check_name == "secure_score":
+                secure_score_check = c
+                break
+
     return render_template("dashboard.html",
                            score=score,
                            latest=latest,
                            alerts=alerts,
                            history=history,
-                           recent=recent)
+                           recent=recent,
+                           secure_score_check=secure_score_check)
 
 
 @bp.route("/api/run/full", methods=["POST"])
 def run_full():
     start_full_run(current_app._get_current_object())
     return {"status": "started"}
+
+
+@bp.route("/api/progress")
+def progress():
+    return jsonify(get_run_progress())
 
 
 def _build_alerts(latest):
