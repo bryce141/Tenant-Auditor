@@ -292,6 +292,83 @@ def check_sspr(client: GraphClient):
     }
 
 
+def check_secure_score(client: GraphClient):
+    """Fetch Microsoft Secure Score and top improvement actions."""
+    scores = client.get_all("/security/secureScores", params={"$top": "1"})
+    if isinstance(scores, dict):
+        return {
+            "check_name": "secure_score", "display_name": "Microsoft Secure Score",
+            "category": "identity", "status": "skip",
+            "points_earned": None, "points_possible": None,
+            "summary": scores["error"], "issues": [], "details": {},
+            "cis_reference": None,
+        }
+    if not scores:
+        return {
+            "check_name": "secure_score", "display_name": "Microsoft Secure Score",
+            "category": "identity", "status": "skip",
+            "points_earned": None, "points_possible": None,
+            "summary": "No score data available yet", "issues": [], "details": {},
+            "cis_reference": None,
+        }
+
+    latest = scores[0]
+    current = latest.get("currentScore") or 0
+    max_score = latest.get("maxScore") or 100
+    pct = round((current / max_score) * 100) if max_score else 0
+    active_users = latest.get("activeUserCount", 0)
+    created = latest.get("createdDateTime", "")
+
+    # Fetch control profiles for titles, remediation, and max scores
+    profiles = client.get_all("/security/secureScoreControlProfiles")
+    profile_map = {}
+    if not isinstance(profiles, dict):
+        for p in profiles:
+            key = p.get("id") or p.get("controlName", "")
+            profile_map[key] = p
+
+    # Build improvement actions list from control scores
+    control_scores = latest.get("controlScores", [])
+    improvements = []
+    for c in control_scores:
+        name = c.get("controlName", "")
+        score = c.get("score") or 0
+        profile = profile_map.get(name, {})
+        max_pts = profile.get("maxScore") or 0
+        if max_pts > 0 and score < max_pts:
+            improvements.append({
+                "name": name,
+                "title": profile.get("title") or name,
+                "score": round(score, 1),
+                "max_score": round(max_pts, 1),
+                "gap": round(max_pts - score, 1),
+                "category": profile.get("controlCategory", ""),
+                "remediation": profile.get("remediation", ""),
+                "action_url": profile.get("actionUrl", ""),
+                "implementation_status": c.get("implementationStatus", "notImplemented"),
+            })
+
+    improvements.sort(key=lambda x: x["gap"], reverse=True)
+    issues = [f"{i['title']} — +{i['gap']} pts available" for i in improvements[:5]]
+
+    return {
+        "check_name": "secure_score", "display_name": "Microsoft Secure Score",
+        "category": "identity", "status": "info",
+        "points_earned": None, "points_possible": None,
+        "summary": f"{pct}% ({current:.0f}/{max_score:.0f} pts) — {len(improvements)} improvement actions available",
+        "issues": issues,
+        "details": {
+            "current_score": round(current, 1),
+            "max_score": round(max_score, 1),
+            "percentage": pct,
+            "active_users": active_users,
+            "created_date": created[:10] if created else "",
+            "improvements": improvements[:15],
+        },
+        "cis_reference": None,
+    }
+
+
 def run_all(client: GraphClient):
     return [
         check_mfa(client),
@@ -302,4 +379,5 @@ def run_all(client: GraphClient):
         check_pim_roles(client),
         check_password_policy(client),
         check_sspr(client),
+        check_secure_score(client),
     ]

@@ -1,33 +1,53 @@
 {% extends "base.html" %}
 {% block title %}Security — Tenant Auditor{% endblock %}
 
+{% block head %}
+<style>
+  .tooltip-box {
+    position: absolute; z-index: 50; width: 280px;
+    background: #0f172a; border: 1px solid #334155;
+    border-radius: 10px; padding: 14px; box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    pointer-events: none; opacity: 0; transition: opacity 0.15s;
+  }
+  .tooltip-box.visible { opacity: 1; pointer-events: auto; }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="p-6 max-w-7xl mx-auto w-full">
+<div class="p-8 max-w-7xl mx-auto w-full">
 
   <!-- Header -->
   <div class="flex items-center justify-between mb-6">
     <div>
-      <h1 class="text-xl font-bold text-slate-100">Security</h1>
+      <h1 class="text-2xl font-bold text-slate-100">Security</h1>
       <p class="text-sm text-slate-500 mt-0.5">Identity, Conditional Access, and Mail Security checks</p>
     </div>
-    <div class="flex items-center gap-3">
+    <div class="flex items-center gap-4">
       {% if score is not none %}
       <div class="text-right">
-        <p class="text-2xl font-bold {{ 'text-emerald-400' if score >= 80 else ('text-amber-400' if score >= 50 else 'text-red-400') }}">{{ score }}/100</p>
+        <p class="text-3xl font-black {{ 'text-emerald-400' if score >= 80 else ('text-amber-400' if score >= 50 else 'text-red-400') }}">{{ score }}<span class="text-lg text-slate-500 font-normal">/100</span></p>
         <p class="text-xs text-slate-500">Security Score</p>
       </div>
       {% endif %}
       <button id="run-btn"
         onclick="runReport('/security/api/run/identity', 'run-btn', '/security/api/status/identity')"
-        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors">
+        class="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5 3l14 9-14 9V3z"/>
+        </svg>
         Run Security
       </button>
     </div>
   </div>
 
   {% if not all_checks %}
-  <div class="card p-12 text-center">
-    <p class="text-slate-400 mb-2">No security data yet.</p>
+  <div class="card p-16 text-center">
+    <div class="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-4">
+      <svg class="w-7 h-7 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+    </div>
+    <p class="text-slate-300 font-semibold mb-1">No security data yet</p>
     <p class="text-slate-600 text-sm">Click "Run Security" to pull data from your tenant.</p>
   </div>
   {% else %}
@@ -36,68 +56,146 @@
   {% if history %}
   <div class="card p-5 mb-6">
     <p class="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-4">Score History</p>
-    <canvas id="scoreChart" height="60"></canvas>
+    <canvas id="scoreChart" height="55"></canvas>
+  </div>
+  {% endif %}
+
+  <!-- Microsoft Secure Score Panel -->
+  {% if secure_score_check and secure_score_check.status != 'skip' and secure_score_check.details %}
+  {% set ss = secure_score_check.details %}
+  <div class="card mb-6 overflow-visible">
+    <div class="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-2 h-8 rounded-full" style="background: #f59e0b30; border-left: 3px solid #f59e0b60"></div>
+        <div>
+          <p class="font-semibold text-slate-100 text-sm flex items-center gap-2">
+            Microsoft Secure Score
+            <span class="text-xs bg-amber-900/30 text-amber-400 border border-amber-700/30 px-1.5 py-0.5 rounded font-normal">Official</span>
+          </p>
+          <p class="text-xs text-slate-500 mt-0.5">Microsoft's own security posture score for your tenant{% if ss.created_date %} — as of {{ ss.created_date }}{% endif %}</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-6">
+        <div class="text-right">
+          <p class="text-2xl font-black {% if ss.percentage >= 80 %}text-emerald-400{% elif ss.percentage >= 50 %}text-amber-400{% else %}text-red-400{% endif %}">
+            {{ ss.percentage }}<span class="text-sm text-slate-500 font-normal">%</span>
+          </p>
+          <p class="text-xs text-slate-500">{{ ss.current_score | int }}/{{ ss.max_score | int }} pts</p>
+        </div>
+        <div class="w-24">
+          <div class="h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div class="h-full rounded-full" style="width: {{ ss.percentage }}%; background: {% if ss.percentage >= 80 %}#34d399{% elif ss.percentage >= 50 %}#fbbf24{% else %}#f87171{% endif %}"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if ss.improvements %}
+    <div class="px-5 pt-4 pb-1">
+      <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Top Improvement Actions</p>
+    </div>
+    <div class="divide-y divide-slate-800/60">
+      {% for item in ss.improvements %}
+      <div class="px-5 py-3 flex items-center justify-between gap-4 hover:bg-slate-700/10 transition-colors">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="w-2 h-2 rounded-full shrink-0 bg-slate-600"></div>
+          <div class="min-w-0">
+            <p class="text-sm text-slate-200 truncate">{{ item.title }}</p>
+            {% if item.remediation %}
+            <p class="text-xs text-slate-600 mt-0.5 truncate">{{ item.remediation | truncate(100) }}</p>
+            {% endif %}
+          </div>
+        </div>
+        <div class="flex items-center gap-3 shrink-0">
+          {% if item.category %}
+          <span class="text-xs text-slate-500 hidden sm:block">{{ item.category }}</span>
+          {% endif %}
+          <span class="text-xs font-semibold text-amber-400 bg-amber-900/20 border border-amber-700/20 px-2 py-0.5 rounded">+{{ item.gap }} pts</span>
+          {% if item.action_url %}
+          <a href="{{ item.action_url }}" target="_blank" rel="noopener"
+             class="text-xs text-blue-400 hover:text-blue-300 transition-colors">View →</a>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
   {% endif %}
 
   <!-- Category Sections -->
   {% set categories = [
-    ('identity', 'Identity & Access', 'MFA, admin roles, PIM, password policy'),
-    ('conditional_access', 'Conditional Access', 'CA policies, legacy auth, named locations'),
-    ('mail_security', 'Mail Security', 'Mailbox forwarding, app registrations'),
+    ('identity', 'Identity & Access', 'MFA, admin roles, PIM, password policy, risky users', '#3b82f6'),
+    ('conditional_access', 'Conditional Access', 'CA policies, legacy auth, named locations', '#a78bfa'),
+    ('mail_security', 'Mail Security', 'Mailbox forwarding, app registrations', '#34d399'),
   ] %}
 
-  {% for cat_key, cat_name, cat_desc in categories %}
+  {% for cat_key, cat_name, cat_desc, cat_color in categories %}
   {% set cat_report = reports.get(cat_key) %}
-  <div class="card mb-4">
+  <div class="card mb-4 overflow-visible">
     <div class="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
-      <div>
-        <p class="font-semibold text-slate-200 text-sm">{{ cat_name }}</p>
-        <p class="text-xs text-slate-500 mt-0.5">{{ cat_desc }}</p>
+      <div class="flex items-center gap-3">
+        <div class="w-2 h-8 rounded-full" style="background: {{ cat_color }}30; border-left: 3px solid {{ cat_color }}60"></div>
+        <div>
+          <p class="font-semibold text-slate-100 text-sm">{{ cat_name }}</p>
+          <p class="text-xs text-slate-500 mt-0.5">{{ cat_desc }}</p>
+        </div>
       </div>
       <div class="flex items-center gap-3">
         {% if cat_report %}
-          <span class="text-xs text-slate-500">{{ cat_report.created_at.strftime('%b %d %H:%M') }}</span>
+          <span class="text-xs text-slate-600">{{ cat_report.created_at.strftime('%b %d %H:%M') }}</span>
         {% endif %}
         <button onclick="runReport('/security/api/run/{{ cat_key }}', 'run-{{ cat_key }}', '/security/api/status/{{ cat_key }}')"
                 id="run-{{ cat_key }}"
-                class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium rounded-lg transition-colors">
+                class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-medium rounded-lg transition-colors">
           Run
         </button>
       </div>
     </div>
 
     {% if cat_report %}
-    <div class="divide-y divide-slate-700/30">
-      {% for check in cat_report.checks %}
-      <div class="px-5 py-3">
+    <div class="divide-y divide-slate-800/60">
+      {% for check in cat_report.checks if check.check_name != 'secure_score' %}
+      <div class="px-5 py-3.5 hover:bg-slate-700/10 transition-colors">
         <div class="flex items-start justify-between gap-4">
-          <div class="flex items-center gap-3 min-w-0">
-            <span class="w-2 h-2 rounded-full shrink-0 status-dot-{{ check.status }}"></span>
+          <div class="flex items-start gap-3 min-w-0">
+            <!-- Status dot -->
+            <div class="mt-1.5 w-2 h-2 rounded-full shrink-0
+              {{ 'bg-emerald-400' if check.status == 'pass'
+                 else ('bg-amber-400' if check.status == 'warn'
+                 else ('bg-red-400' if check.status == 'fail' else 'bg-slate-500')) }}"></div>
             <div class="min-w-0">
               <div class="flex items-center gap-2 flex-wrap">
-                <p class="text-sm font-medium text-slate-200">{{ check.display_name }}</p>
+                <p class="text-sm font-semibold text-slate-200">{{ check.display_name }}</p>
                 {% if check.cis_reference %}
-                  <span class="text-xs bg-blue-900/50 text-blue-400 border border-blue-800/50 px-1.5 py-0.5 rounded font-mono">{{ check.cis_reference }}</span>
+                  <span class="text-xs bg-blue-900/40 text-blue-400 border border-blue-800/40 px-1.5 py-0.5 rounded font-mono">{{ check.cis_reference }}</span>
                 {% endif %}
+                <!-- Info button -->
+                <button class="info-btn w-4 h-4 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-500 hover:text-slate-300 text-xs flex items-center justify-center transition-colors"
+                        data-check="{{ check.check_name }}" title="What does this mean?">?</button>
               </div>
               <p class="text-xs text-slate-500 mt-0.5">{{ check.summary }}</p>
             </div>
           </div>
           <div class="flex items-center gap-3 shrink-0">
             {% if check.points_earned is not none %}
-              <span class="text-xs text-slate-400">{{ check.points_earned }}/{{ check.points_possible }} pts</span>
+              <span class="text-xs text-slate-600">{{ check.points_earned }}/{{ check.points_possible }}pts</span>
             {% endif %}
-            <span class="text-xs px-2 py-0.5 rounded border font-medium badge-{{ check.status }}">{{ check.status }}</span>
+            <span class="text-xs px-2 py-0.5 rounded font-semibold
+              {{ 'badge-pass' if check.status == 'pass'
+                 else ('badge-warn' if check.status == 'warn'
+                 else ('badge-fail' if check.status == 'fail' else 'badge-skip')) }}">
+              {{ check.status }}
+            </span>
           </div>
         </div>
         {% if check.issues %}
         <div class="mt-2 ml-5 space-y-0.5">
           {% for issue in check.issues[:5] %}
-            <p class="text-xs text-slate-500">↳ {{ issue }}</p>
+            <p class="text-xs text-slate-600">↳ {{ issue }}</p>
           {% endfor %}
           {% if check.issues | length > 5 %}
-            <p class="text-xs text-slate-600">↳ +{{ check.issues | length - 5 }} more…</p>
+            <p class="text-xs text-slate-700">↳ +{{ check.issues | length - 5 }} more…</p>
           {% endif %}
         </div>
         {% endif %}
@@ -105,8 +203,8 @@
       {% endfor %}
     </div>
     {% else %}
-    <div class="px-5 py-6 text-center">
-      <p class="text-sm text-slate-600">No data — click Run to fetch.</p>
+    <div class="px-5 py-8 text-center">
+      <p class="text-sm text-slate-600">No data — click Run to fetch from your tenant.</p>
     </div>
     {% endif %}
   </div>
@@ -114,9 +212,168 @@
   {% endif %}
 
 </div>
+
+<!-- Tooltip popover -->
+<div id="tooltip-box" class="tooltip-box">
+  <div class="flex items-start gap-2 mb-2">
+    <svg class="w-4 h-4 text-blue-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <p id="tt-title" class="text-xs font-bold text-slate-200"></p>
+  </div>
+  <p id="tt-what" class="text-xs text-slate-400 mb-2 leading-relaxed"></p>
+  <div class="border-t border-slate-800 pt-2 mt-2">
+    <p class="text-xs font-semibold text-amber-400 mb-1">Why it matters</p>
+    <p id="tt-why" class="text-xs text-slate-500 leading-relaxed"></p>
+  </div>
+  <div id="tt-fix-wrap" class="border-t border-slate-800 pt-2 mt-2">
+    <p class="text-xs font-semibold text-emerald-400 mb-1">How to fix</p>
+    <p id="tt-fix" class="text-xs text-slate-500 leading-relaxed"></p>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
+<script>
+const CHECK_INFO = {
+  mfa: {
+    title: 'MFA Status',
+    what: 'Checks whether Multi-Factor Authentication is enforced for users in your tenant — either via Conditional Access or per-user MFA settings.',
+    why: 'Accounts without MFA are the #1 vector for account takeover. Microsoft reports MFA blocks over 99.9% of automated credential attacks.',
+    fix: 'Create a Conditional Access policy requiring MFA for all users, or enable per-user MFA under Azure AD → Users → Multi-Factor Authentication.'
+  },
+  stale_accounts: {
+    title: 'Stale Accounts',
+    what: 'Identifies licensed user accounts that have not signed in for 90 or more days based on signInActivity from the Graph API.',
+    why: 'Stale accounts that retain licenses and access are an unnecessary attack surface. Forgotten accounts are often easy targets.',
+    fix: 'Review inactive accounts and disable or delete them. Remove license assignments from accounts that no longer need access.'
+  },
+  admin_roles: {
+    title: 'Admin Role Assignments',
+    what: 'Lists all users assigned privileged directory roles such as Global Administrator, Exchange Administrator, and similar.',
+    why: 'Each admin account is a high-value target. Too many Global Admins or standing permanent assignments increase your blast radius significantly.',
+    fix: 'Remove unnecessary role assignments. Limit Global Admins to 2–5 accounts. Use PIM (Privileged Identity Management) for just-in-time elevation.'
+  },
+  guest_users: {
+    title: 'Guest Users',
+    what: 'Counts and lists all external guest accounts (userType = Guest) in your tenant directory.',
+    why: 'Guest accounts often persist long after collaboration ends, retaining access to Teams, SharePoint, and other resources.',
+    fix: 'Review guest accounts regularly. Enable Azure AD Access Reviews for guests. Configure guest user expiration policies.'
+  },
+  risky_users: {
+    title: 'Risky Users',
+    what: 'Pulls users flagged by Microsoft Identity Protection as medium or high risk based on behavioral signals and leaked credentials.',
+    why: 'A high-risk user likely has compromised credentials or is exhibiting suspicious activity. These accounts need immediate attention.',
+    fix: 'In Azure AD Identity Protection, review risky users and either confirm compromise (disable + reset) or dismiss if false positive. Require MFA on sign-in for risky users via CA policy.'
+  },
+  pim_roles: {
+    title: 'PIM Roles',
+    what: 'Checks Privileged Identity Management (PIM) for eligible vs. permanent role assignments. Flags users with standing permanent admin roles that should be eligible-only.',
+    why: 'Standing admin access means an account is permanently privileged. PIM eligible assignments require explicit activation with justification and MFA, dramatically reducing risk.',
+    fix: 'Convert standing role assignments to PIM-eligible in Azure AD → Privileged Identity Management → Azure AD Roles.'
+  },
+  password_policy: {
+    title: 'Password Policy',
+    what: 'Checks whether users have password expiration disabled via the DisablePasswordExpiration flag in their password profile.',
+    why: 'Microsoft recommends not expiring passwords when MFA is in place. Forced rotations often lead to weak, predictable patterns (Password1 → Password2).',
+    fix: 'If MFA is enforced, disabling password expiration is the recommended posture. If MFA is not enforced, expiration may be necessary as a compensating control.'
+  },
+  sspr: {
+    title: 'Self-Service Password Reset',
+    what: 'Checks whether SSPR (Self-Service Password Reset) is enabled via the authorizationPolicy in your tenant.',
+    why: 'Without SSPR, every locked-out user requires IT intervention. This creates a social engineering opportunity via helpdesk calls.',
+    fix: 'Enable SSPR in Azure AD → Password reset. Require at least two authentication methods (authenticator app + phone or email).'
+  },
+  conditional_access: {
+    title: 'Conditional Access Policies',
+    what: 'Lists all Conditional Access policies in your tenant and checks for common gaps — policies in report-only mode, disabled policies, or missing coverage for admins.',
+    why: 'CA policies are your primary enforcement layer for identity security. Policies in report-only mode provide no protection.',
+    fix: 'Review policies in report-only mode and promote to enforced. Ensure all admin accounts are covered by at least one enforced policy requiring MFA.'
+  },
+  legacy_auth: {
+    title: 'Legacy Authentication Blocked',
+    what: 'Checks whether Conditional Access policies exist that block legacy authentication protocols (Basic Auth, older SMTP/IMAP/POP clients).',
+    why: 'Legacy auth protocols do not support MFA. Attackers specifically target them to bypass modern authentication controls. Microsoft is deprecating them, but tenants must explicitly block them.',
+    fix: 'Create a CA policy with condition "Client apps → Legacy authentication clients" set to Block. Test in report-only mode first.'
+  },
+  named_locations: {
+    title: 'Named Locations',
+    what: 'Checks whether named locations (trusted IP ranges or countries) are configured in Conditional Access.',
+    why: 'Named locations enable risk-based policies — requiring MFA for sign-ins from outside trusted offices, or blocking sign-ins from certain countries.',
+    fix: 'Add your office IP ranges as trusted named locations in Azure AD → Security → Named locations. Then use them in CA policies to reduce MFA friction for trusted networks.'
+  },
+  email_authentication: {
+    title: 'Email Authentication (SPF/DKIM/DMARC)',
+    what: 'Checks DNS records for all verified tenant domains: SPF (Sender Policy Framework) at the domain root, DMARC at _dmarc.<domain>, and DKIM at selector1/selector2._domainkey.<domain>.',
+    why: 'Without these records, anyone can send email that appears to come from your domain. Phishing attacks impersonating your org are trivial without DMARC enforcement. Google and Microsoft now require SPF + DMARC for bulk senders.',
+    fix: 'Add an SPF TXT record (v=spf1 include:spf.protection.outlook.com -all), enable DKIM in Exchange Admin Center → Email Authentication, and publish a DMARC record starting with p=quarantine then graduating to p=reject.'
+  },
+  mailbox_forwarding: {
+    title: 'Mailbox Forwarding',
+    what: 'Checks each user\'s mailboxSettings for external forwarding rules that send email outside the organization.',
+    why: 'External email forwarding is a major data exfiltration vector. Attackers who compromise an account commonly set up forwarding rules to silently copy email.',
+    fix: 'Remove any unexpected forwarding rules. Create an anti-forwarding Exchange Transport Rule or CA policy. Enable Microsoft Defender alerts for new forwarding rules.'
+  },
+  app_registrations: {
+    title: 'App Registration Credentials',
+    what: 'Scans all app registrations for client secrets and certificates that are expired or expiring within 30–90 days.',
+    why: 'Expired credentials cause app outages. Forgotten app registrations with broad permissions that are never rotated are also a security risk.',
+    fix: 'Rotate expiring credentials before they expire. Review app registrations with high-privilege permissions and remove any that are no longer in use.'
+  },
+  app_credential_expiry: {
+    title: 'App Dangerous Permissions',
+    what: 'Identifies app registrations that hold high-risk Microsoft Graph permissions such as Mail.ReadWrite.All, Files.ReadWrite.All, or Directory.ReadWrite.All.',
+    why: 'Apps with write permissions to all mailboxes or files can be weaponized if compromised. Overprivileged apps violate least-privilege principles.',
+    fix: 'Audit each flagged app\'s actual use case and reduce permissions to the minimum required. Remove or disable apps no longer in use.'
+  },
+};
+
+const tooltip = document.getElementById('tooltip-box');
+let activeBtn = null;
+
+document.querySelectorAll('.info-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const checkName = btn.dataset.check;
+    const info = CHECK_INFO[checkName];
+    if (!info) return;
+
+    if (activeBtn === btn && !tooltip.classList.contains('hidden') && tooltip.classList.contains('visible')) {
+      tooltip.classList.remove('visible');
+      activeBtn = null;
+      return;
+    }
+    activeBtn = btn;
+
+    document.getElementById('tt-title').textContent = info.title;
+    document.getElementById('tt-what').textContent = info.what;
+    document.getElementById('tt-why').textContent = info.why;
+    const fixWrap = document.getElementById('tt-fix-wrap');
+    if (info.fix) {
+      document.getElementById('tt-fix').textContent = info.fix;
+      fixWrap.classList.remove('hidden');
+    } else {
+      fixWrap.classList.add('hidden');
+    }
+
+    // Position tooltip near the button
+    const rect = btn.getBoundingClientRect();
+    const scrollY = window.scrollY;
+    tooltip.style.top = (rect.bottom + scrollY + 8) + 'px';
+    let left = rect.left - 240;
+    if (left < 12) left = 12;
+    tooltip.style.left = left + 'px';
+    tooltip.classList.add('visible');
+  });
+});
+
+document.addEventListener('click', () => {
+  tooltip.classList.remove('visible');
+  activeBtn = null;
+});
+</script>
+
 {% if history %}
 <script>
   const ctx = document.getElementById('scoreChart').getContext('2d');
@@ -126,15 +383,19 @@
       labels: {{ history | map(attribute='date') | list | tojson }},
       datasets: [{
         data: {{ history | map(attribute='score') | list | tojson }},
-        borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)',
-        fill: true, tension: 0.4, pointBackgroundColor: '#3b82f6', pointRadius: 4,
+        borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.08)',
+        fill: true, tension: 0.4,
+        pointBackgroundColor: '#3b82f6', pointBorderColor: '#1e293b', pointBorderWidth: 2, pointRadius: 5,
       }]
     },
     options: {
-      plugins: { legend: { display: false } },
+      plugins: { legend: { display: false }, tooltip: {
+        backgroundColor: '#0f172a', borderColor: '#334155', borderWidth: 1,
+        titleColor: '#94a3b8', bodyColor: '#e2e8f0',
+      }},
       scales: {
-        y: { min: 0, max: 100, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
-        x: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }
+        y: { min: 0, max: 100, grid: { color: '#1e293b' }, ticks: { color: '#475569', font: { size: 11 } } },
+        x: { grid: { color: '#1e293b' }, ticks: { color: '#475569', font: { size: 11 } } }
       }
     }
   });

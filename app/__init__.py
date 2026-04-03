@@ -14,7 +14,8 @@ def create_app():
         from app.models import report  # noqa: F401
         db.create_all()
 
-        from app.routes import dashboard, security, licensing, users, sharepoint, exchange, groups, reports, settings
+        from app.routes import landing, dashboard, security, licensing, users, sharepoint, exchange, groups, reports, settings
+        app.register_blueprint(landing.bp)
         app.register_blueprint(dashboard.bp)
         app.register_blueprint(security.bp)
         app.register_blueprint(licensing.bp)

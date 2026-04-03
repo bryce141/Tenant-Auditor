@@ -1,5 +1,7 @@
 .env
-data/config.json
+.env.bak
+data/
+*.db
 __pycache__/
 *.pyc
 *.pyo

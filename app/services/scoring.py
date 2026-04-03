@@ -1,10 +1,11 @@
 """
-Scoring weights (100 pts total — security checks only):
+Scoring weights (110 pts total — security checks only):
   MFA Registration              20
   Conditional Access            15
   Legacy Auth Blocked           10
   Admin Role Hygiene            10
   PIM / Standing Roles          10
+  Email Authentication          10  (SPF 3 + DMARC 4 + DKIM 3)
   Mailbox Forwarding             8
   App Credential Expiry          8
   App Permissions                5
@@ -25,6 +26,7 @@ CIS_MAP = {
     "password_policy":        {"id": "CIS 2.1.1", "title": "Ensure password expiration is enforced"},
     "sspr_enabled":           {"id": "CIS 1.1.5", "title": "Ensure Self-Service Password Reset is enabled"},
     "named_locations":        {"id": "CIS 1.1.3", "title": "Ensure named locations are defined"},
+    "email_authentication":   {"id": "CIS 6.2.2", "title": "Ensure SPF, DKIM, and DMARC are configured for all domains"},
 }
 
 

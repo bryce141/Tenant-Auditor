@@ -1,11 +1,36 @@
 """
 Mail Security checks:
-  - Mailbox Forwarding    (8 pts)
-  - App Registrations     (credential expiry: 8 pts, permissions: 5 pts)
+  - Mailbox Forwarding        (8 pts)
+  - App Registrations         (credential expiry: 8 pts, permissions: 5 pts)
+  - Email Authentication      (10 pts — SPF, DKIM, DMARC per domain)
 """
 from datetime import datetime, timezone, timedelta
 from app.services.graph_client import GraphClient
 from app.services.scoring import CIS_MAP
+
+try:
+    import dns.resolver
+    _DNS_AVAILABLE = True
+except ImportError:
+    _DNS_AVAILABLE = False
+
+
+def _lookup_txt(hostname):
+    """Return list of TXT record strings for hostname. Returns [] on any error."""
+    if not _DNS_AVAILABLE:
+        return []
+    try:
+        answers = dns.resolver.resolve(hostname, "TXT", lifetime=5)
+        records = []
+        for rdata in answers:
+            joined = "".join(
+                s.decode("utf-8", errors="ignore") if isinstance(s, bytes) else s
+                for s in rdata.strings
+            )
+            records.append(joined)
+        return records
+    except Exception:
+        return []
 
 EXPIRY_WARN_DAYS = 30
 
@@ -124,8 +149,117 @@ def check_app_registrations(client: GraphClient):
     ]
 
 
+def check_email_authentication(client: GraphClient):
+    """Check SPF, DKIM, and DMARC records for all verified tenant domains."""
+    if not _DNS_AVAILABLE:
+        return {
+            "check_name": "email_authentication", "display_name": "Email Authentication (SPF/DKIM/DMARC)",
+            "category": "mail_security", "status": "skip",
+            "points_earned": None, "points_possible": 10,
+            "summary": "dnspython not installed — run: pip install dnspython",
+            "issues": [], "details": {}, "cis_reference": CIS_MAP["email_authentication"]["id"],
+        }
+
+    domains_resp = client.get_all("/domains?$select=id,isVerified,isDefault")
+    if isinstance(domains_resp, dict):
+        return {
+            "check_name": "email_authentication", "display_name": "Email Authentication (SPF/DKIM/DMARC)",
+            "category": "mail_security", "status": "skip",
+            "points_earned": None, "points_possible": 10,
+            "summary": domains_resp["error"], "issues": [], "details": {},
+            "cis_reference": CIS_MAP["email_authentication"]["id"],
+        }
+
+    verified = [d for d in domains_resp if d.get("isVerified") and not d["id"].endswith(".onmicrosoft.com")]
+    if not verified:
+        return {
+            "check_name": "email_authentication", "display_name": "Email Authentication (SPF/DKIM/DMARC)",
+            "category": "mail_security", "status": "skip",
+            "points_earned": None, "points_possible": 10,
+            "summary": "No custom verified domains found",
+            "issues": [], "details": {}, "cis_reference": CIS_MAP["email_authentication"]["id"],
+        }
+
+    results = []
+    for d in verified:
+        domain = d["id"]
+        entry = {"domain": domain, "is_default": d.get("isDefault", False), "issues": []}
+
+        # SPF — TXT record at the domain root containing v=spf1
+        txt_records = _lookup_txt(domain)
+        spf_record = next((r for r in txt_records if r.lower().startswith("v=spf1")), None)
+        entry["spf"] = {"present": bool(spf_record), "record": spf_record or ""}
+        if not spf_record:
+            entry["issues"].append("SPF record missing")
+
+        # DMARC — TXT record at _dmarc.<domain>
+        dmarc_records = _lookup_txt(f"_dmarc.{domain}")
+        dmarc_record = next((r for r in dmarc_records if r.upper().startswith("V=DMARC1")), None)
+        dmarc_policy = None
+        if dmarc_record:
+            for tag in dmarc_record.split(";"):
+                tag = tag.strip()
+                if tag.lower().startswith("p="):
+                    dmarc_policy = tag[2:].strip().lower()
+                    break
+        entry["dmarc"] = {
+            "present": bool(dmarc_record),
+            "record": dmarc_record or "",
+            "policy": dmarc_policy or "",
+        }
+        if not dmarc_record:
+            entry["issues"].append("DMARC record missing")
+        elif dmarc_policy == "none":
+            entry["issues"].append("DMARC policy is 'none' (monitoring only — not blocking spoofed email)")
+
+        # DKIM — check Microsoft 365 default selectors (selector1, selector2)
+        dkim_found = False
+        dkim_selector = None
+        for selector in ("selector1", "selector2"):
+            recs = _lookup_txt(f"{selector}._domainkey.{domain}")
+            if any("v=DKIM1" in r or "k=rsa" in r for r in recs):
+                dkim_found = True
+                dkim_selector = selector
+                break
+        entry["dkim"] = {"present": dkim_found, "selector": dkim_selector or ""}
+        if not dkim_found:
+            entry["issues"].append("DKIM not configured (checked selector1, selector2)")
+
+        results.append(entry)
+
+    total = len(results)
+    spf_pass = sum(1 for r in results if r["spf"]["present"])
+    dmarc_enforce = sum(1 for r in results if r["dmarc"]["policy"] in ("reject", "quarantine"))
+    dkim_pass = sum(1 for r in results if r["dkim"]["present"])
+
+    # Score: SPF 3pts, DMARC enforcement 4pts, DKIM 3pts — weighted by pass rate
+    spf_rate = spf_pass / total if total else 0
+    dmarc_rate = dmarc_enforce / total if total else 0
+    dkim_rate = dkim_pass / total if total else 0
+    earned = round(3 * spf_rate + 4 * dmarc_rate + 3 * dkim_rate)
+
+    all_issues = []
+    for r in results:
+        for issue in r["issues"]:
+            all_issues.append(f"{r['domain']}: {issue}")
+
+    status = "pass" if not all_issues else ("warn" if earned >= 5 else "fail")
+
+    return {
+        "check_name": "email_authentication", "display_name": "Email Authentication (SPF/DKIM/DMARC)",
+        "category": "mail_security", "status": status,
+        "points_earned": earned, "points_possible": 10,
+        "summary": (f"{spf_pass}/{total} domains have SPF, "
+                    f"{dmarc_enforce}/{total} have enforced DMARC, "
+                    f"{dkim_pass}/{total} have DKIM"),
+        "issues": all_issues,
+        "details": {"domains": results, "total": total},
+        "cis_reference": CIS_MAP["email_authentication"]["id"],
+    }
+
+
 def run_all(client: GraphClient):
-    checks = [check_mailbox_forwarding(client)]
+    checks = [check_mailbox_forwarding(client), check_email_authentication(client)]
     app_checks = check_app_registrations(client)
     if isinstance(app_checks, list):
         checks.extend(app_checks)

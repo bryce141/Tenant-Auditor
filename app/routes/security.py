@@ -27,9 +27,19 @@ def index():
     history = [{"date": r.created_at.strftime("%b %d"), "score": r.score, "type": r.report_type}
                for r in score_history]
 
+    # Extract MS Secure Score check for dedicated display
+    secure_score_check = None
+    identity_report = reports.get("identity")
+    if identity_report:
+        for c in identity_report.checks:
+            if c.check_name == "secure_score":
+                secure_score_check = c
+                break
+
     return render_template("security/index.html",
                            reports=reports, running=running,
                            all_checks=all_checks, score=score, history=history,
+                           secure_score_check=secure_score_check,
                            has_credentials=has_credentials())
 
 
