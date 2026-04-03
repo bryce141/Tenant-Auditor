@@ -157,7 +157,24 @@ def run_full(app_context):
                 label = CATEGORY_LABELS.get(category, f"Checking {category}")
                 _set_progress(i, total, label, running=True, category=category)
                 results = module.run_all(client)
-                _save_checks(report_id, results)
+
+                # Save to individual category report so dashboard tiles work
+                cat_report = Report(tenant_id=tenant_id, report_type=category, status="running")
+                db.session.add(cat_report)
+                db.session.commit()
+                _save_checks(cat_report.id, results)
+
+                cat_score = None
+                if category in SECURITY_CATEGORIES:
+                    check_dicts = [{"points_earned": r.get("points_earned"), "points_possible": r.get("points_possible")}
+                                   for r in results if isinstance(r, dict)]
+                    cat_score = calculate_security_score(check_dicts)["overall"]
+
+                cat_report.status = "complete"
+                cat_report.score = cat_score
+                cat_report.completed_at = datetime.utcnow()
+                db.session.commit()
+
                 all_results.extend(r for r in results if isinstance(r, dict))
 
             _set_progress(total, total, "Finalizing results…", running=True)
