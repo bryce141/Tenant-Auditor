@@ -76,10 +76,12 @@ def check_sharepoint_sites(client: GraphClient):
 
 @check("external_sharing", "External Sharing Policy", "sharepoint", empty_details={})
 def check_external_sharing(client: GraphClient):
+    # A tenant with no SharePoint answers 400 "Tenant does not have a SPO
+    # license", which get_one surfaces as a GraphError carrying that text. Only
+    # an empty-but-successful response reaches the raise below.
     settings = client.get_one("/admin/sharepoint/settings", beta=True)
     if not settings:
-        raise GraphError("SharePointTenantSettings.Read.All permission required "
-                         "or endpoint not available",
+        raise GraphError("SharePoint tenant settings returned no data",
                          endpoint="/admin/sharepoint/settings")
 
     sharing_capability = settings.get("sharingCapability", "unknown")

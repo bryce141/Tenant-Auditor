@@ -61,7 +61,10 @@ def check_legacy_auth(client: GraphClient):
         "check_name": "legacy_auth_blocked", "display_name": "Legacy Auth Blocked",
         "category": "conditional_access", "status": "pass" if blocked else "fail",
         "points_earned": 10 if blocked else 0, "points_possible": 10,
-        "summary": f"Legacy auth {'blocked by' if blocked else 'not blocked —'} {len(blocking)} {'policies' if blocked else 'no blocking policy found'}",
+        "summary": (f"Legacy auth blocked by {len(blocking)} "
+                    f"{'policy' if len(blocking) == 1 else 'policies'}"
+                    if blocked else
+                    "Legacy auth is not blocked — no policy blocks legacy clients"),
         "issues": [] if blocked else ["No Conditional Access policy blocks legacy authentication"],
         "details": {"legacy_auth_blocked": blocked, "blocking_policies": blocking},
         "cis_reference": CIS_MAP["legacy_auth_blocked"]["id"],

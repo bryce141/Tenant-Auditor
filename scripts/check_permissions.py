@@ -6,12 +6,19 @@ Acquires a token with the configured credentials, reads the granted
 application permissions out of the token's `roles` claim, and compares
 them against what the checks actually need.
 
-    python scripts/check_permissions.py           # compare granted vs required
-    python scripts/check_permissions.py --probe   # also call each endpoint live
+    python scripts/check_permissions.py                  # granted vs required
+    python scripts/check_permissions.py --probe          # also call each endpoint
+    python scripts/check_permissions.py --tenant Contoso # pick one by name
+    python scripts/check_permissions.py --list           # show configured tenants
 
 The --probe mode is the useful one when a check is silently skipping:
 it reports the real HTTP status per endpoint, which distinguishes a
 missing permission (403) from a wrong URL or absent workload (404).
+
+Credentials come from the tenants table. Tenant selection normally happens in
+the browser session, which a script has no access to, so it is resolved here
+explicitly — otherwise this silently falls back to a legacy config.json and
+reports on whatever stale credential is sitting in it.
 """
 import argparse
 import base64
@@ -22,7 +29,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import requests  # noqa: E402
-from app.auth.graph_auth import get_token  # noqa: E402
+from app import create_app  # noqa: E402
+from app.auth.graph_auth import acquire_token  # noqa: E402
 
 # What the checks need. Derived from the endpoints in app/checks/.
 #
@@ -125,19 +133,72 @@ def probe(headers, label, path, beta):
     return "FAIL", str(code)
 
 
+def resolve_tenant(name_filter):
+    """Pick the tenant to inspect, erroring rather than guessing when ambiguous."""
+    from app.models.tenant import Tenant
+
+    tenants = Tenant.query.order_by(Tenant.name).all()
+    if not tenants:
+        return None, "No tenants configured. Add one at /tenants first."
+
+    if name_filter:
+        matches = [t for t in tenants if name_filter.lower() in t.name.lower()]
+        if not matches:
+            names = ", ".join(t.name for t in tenants)
+            return None, f"No tenant matching {name_filter!r}. Configured: {names}"
+        if len(matches) > 1:
+            names = ", ".join(t.name for t in matches)
+            return None, f"{name_filter!r} matches several tenants: {names}"
+        return matches[0], None
+
+    if len(tenants) > 1:
+        names = ", ".join(t.name for t in tenants)
+        return None, f"Several tenants configured — pass --tenant. Configured: {names}"
+
+    return tenants[0], None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--probe", action="store_true", help="call each endpoint live")
+    ap.add_argument("--tenant", help="name (or part of one) of the tenant to check")
+    ap.add_argument("--list", action="store_true", help="list configured tenants and exit")
     args = ap.parse_args()
 
-    try:
-        token, tenant_id = get_token()
-    except Exception as e:
-        print(f"{RED}Auth failed:{RESET} {e}")
-        return 1
+    app = create_app()
+    with app.app_context():
+        from app.models.tenant import Tenant
+
+        if args.list:
+            tenants = Tenant.query.order_by(Tenant.name).all()
+            if not tenants:
+                print("No tenants configured.")
+                return 1
+            print("\nConfigured tenants\n" + "-" * 78)
+            for t in tenants:
+                print(f"  {t.name:<28} {t.tenant_id}")
+            print()
+            return 0
+
+        tenant, problem = resolve_tenant(args.tenant)
+        if problem:
+            print(f"{RED}{problem}{RESET}")
+            return 1
+
+        try:
+            secret = tenant.client_secret
+        except Exception as e:
+            print(f"{RED}Could not read stored secret:{RESET} {e}")
+            return 1
+
+        try:
+            token, tenant_id = acquire_token(tenant.tenant_id, tenant.client_id, secret)
+        except Exception as e:
+            print(f"{RED}Auth failed:{RESET} {e}")
+            return 1
 
     granted, claims = decode_roles(token)
-    print(f"\nTenant: {tenant_id}")
+    print(f"\nTenant: {tenant.name} ({tenant_id})")
     print(f"App ID: {claims.get('appid', 'unknown')}\n")
 
     missing = []

@@ -166,3 +166,49 @@ def test_forwarding_check_skips_when_batch_fails():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+class ErrorResponse:
+    def __init__(self, status, payload=None):
+        self.status_code = status
+        self.ok = status < 400
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
+
+
+def test_graph_error_message_is_surfaced_not_replaced(monkeypatch):
+    """A 400 from Graph is usually a licensing answer, not a malformed request."""
+    payload = {"error": {"code": "BadRequest",
+                         "message": "Tenant does not have a SPO license."}}
+    monkeypatch.setattr("app.services.graph_client.requests.get",
+                        lambda *a, **k: ErrorResponse(400, payload))
+
+    client = GraphClient({"Authorization": "Bearer x"})
+    with pytest.raises(GraphError) as exc:
+        client.get_all("/admin/sharepoint/settings")
+
+    assert "SPO license" in str(exc.value), "the actual reason must reach the user"
+    assert "HTTP 400" not in str(exc.value), "opaque status code should be replaced"
+
+
+def test_premium_licence_message_survives(monkeypatch):
+    payload = {"error": {"code": "AadPremiumLicenseRequired",
+                         "message": "The tenant needs to have Microsoft Entra ID P2."}}
+    monkeypatch.setattr("app.services.graph_client.requests.get",
+                        lambda *a, **k: ErrorResponse(400, payload))
+
+    client = GraphClient({"Authorization": "Bearer x"})
+    with pytest.raises(GraphError) as exc:
+        client.get_all("/roleManagement/directory/roleEligibilitySchedules")
+    assert "Entra ID P2" in str(exc.value)
+
+
+def test_falls_back_to_status_when_graph_says_nothing(monkeypatch):
+    monkeypatch.setattr("app.services.graph_client.requests.get",
+                        lambda *a, **k: ErrorResponse(500))
+    client = GraphClient({"Authorization": "Bearer x"})
+    with pytest.raises(GraphError) as exc:
+        client.get_all("/users")
+    assert "HTTP 500" in str(exc.value)

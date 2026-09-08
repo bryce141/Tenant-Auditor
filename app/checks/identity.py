@@ -322,15 +322,23 @@ def check_password_policy(client: GraphClient):
 def check_sspr(client: GraphClient):
     data = client.get_one("/policies/authorizationPolicy")
 
-    scope = (data or {}).get("allowedToUseSSPR", "none")
-    enabled = scope != "none"
+    # allowedToUseSSPR is a boolean. It was previously compared against the
+    # string "none", and `False != "none"` is True — so a tenant with SSPR
+    # switched off was reported as passing and given full marks. Absent is
+    # treated as unknown rather than enabled.
+    raw = (data or {}).get("allowedToUseSSPR")
+    if raw is None:
+        raise GraphError("authorizationPolicy did not return allowedToUseSSPR",
+                         endpoint="/policies/authorizationPolicy")
+
+    enabled = bool(raw)
     return {
         "check_name": "sspr_enabled", "display_name": "SSPR Enabled",
         "category": "identity", "status": "pass" if enabled else "fail",
         "points_earned": 5 if enabled else 0, "points_possible": 5,
-        "summary": f"Self-Service Password Reset is {'enabled' if enabled else 'not enabled'} (scope: {scope})",
+        "summary": f"Self-Service Password Reset is {'enabled' if enabled else 'not enabled'} for users",
         "issues": [] if enabled else ["Self-Service Password Reset is not enabled"],
-        "details": {"enabled": enabled, "scope": scope},
+        "details": {"enabled": enabled},
         "cis_reference": CIS_MAP["sspr_enabled"]["id"],
     }
 

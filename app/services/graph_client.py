@@ -34,18 +34,40 @@ class GraphClient:
             return endpoint
         return f"{base}{endpoint}"
 
+    @staticmethod
+    def _graph_message(resp):
+        """The human-readable reason Graph gave, if it gave one.
+
+        Worth surfacing verbatim: a 400 from Graph is often a licensing answer
+        ("Tenant does not have a SPO license", "requires Microsoft Entra ID P2")
+        rather than a malformed request, and reporting it as "HTTP 400" sends
+        you looking for a bug that isn't there.
+        """
+        try:
+            err = resp.json().get("error", {})
+            message = (err.get("message") or "").strip()
+            if message:
+                return message.split("\n")[0][:180]
+        except Exception:
+            pass
+        return None
+
     def _raise_for(self, resp, endpoint):
         """Translate an unsuccessful response into GraphError."""
+        detail = self._graph_message(resp)
+
         if resp.status_code == 403:
-            raise GraphError(f"Insufficient permissions ({endpoint})",
-                             status=403, endpoint=endpoint)
+            reason = detail or "Insufficient permissions"
+            raise GraphError(f"{reason} ({endpoint})", status=403, endpoint=endpoint)
         if resp.status_code == 404:
             raise GraphError(f"Resource not found ({endpoint})",
                              status=404, endpoint=endpoint)
         if resp.status_code == 429:
             raise GraphError(f"Throttled by Graph ({endpoint})",
                              status=429, endpoint=endpoint)
-        raise GraphError(f"HTTP {resp.status_code} for {endpoint}",
+
+        reason = detail or f"HTTP {resp.status_code}"
+        raise GraphError(f"{reason} ({endpoint})",
                          status=resp.status_code, endpoint=endpoint)
 
     def get_all(self, endpoint, params=None, beta=False):
