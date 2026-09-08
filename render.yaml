@@ -3,7 +3,12 @@ services:
     name: tenant-auditor
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn run:app --bind 0.0.0.0:$PORT --workers 2
+    # One worker, several threads. Run progress lives in a module-level dict and
+    # audits execute in background threads, so a second worker process would get
+    # its own copy and progress polls would hit the wrong one at random. Threads
+    # keep request concurrency without splitting that state — and keep SQLite to
+    # a single writer.
+    startCommand: gunicorn run:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
     envVars:
       - key: DATA_DIR
         value: /var/data

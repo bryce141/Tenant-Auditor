@@ -10,6 +10,12 @@ def create_app():
 
     db.init_app(app)
 
+    # Check guidance is shared by every template (and, later, report exports),
+    # so it lives on the Jinja environment rather than being passed per-route.
+    from app.services import remediation
+    app.jinja_env.globals["CHECK_GUIDANCE"] = remediation.GUIDANCE
+    app.jinja_env.globals["severity_of"] = remediation.severity_of
+
     with app.app_context():
         from app.models import report  # noqa: F401
         db.create_all()
