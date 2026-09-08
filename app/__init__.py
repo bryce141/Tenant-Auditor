@@ -39,7 +39,7 @@ def create_app():
         return {"ACTIVE_TENANTS": all_tenants, "CURRENT_TENANT": current}
 
     with app.app_context():
-        from app.models import report, tenant  # noqa: F401
+        from app.models import report, tenant, user  # noqa: F401
         db.create_all()
 
         # Move a legacy config.json tenant into the tenants table so existing
@@ -51,8 +51,9 @@ def create_app():
             # Never block startup on this; the tenants page can be used instead.
             db.session.rollback()
 
-        from app.routes import (landing, dashboard, security, licensing, users, sharepoint,
-                                exchange, groups, reports, settings, tenants)
+        from app.routes import (auth, landing, dashboard, security, licensing, users,
+                                sharepoint, exchange, groups, reports, settings, tenants)
+        app.register_blueprint(auth.bp)
         app.register_blueprint(tenants.bp)
         app.register_blueprint(landing.bp)
         app.register_blueprint(dashboard.bp)
@@ -64,6 +65,12 @@ def create_app():
         app.register_blueprint(groups.bp)
         app.register_blueprint(reports.bp)
         app.register_blueprint(settings.bp)
+
+    # Installed after the blueprints so every endpoint is covered. Fail-closed:
+    # anything not named public requires a session, so a route added later is
+    # protected by default rather than exposed until someone remembers.
+    from app.auth.session_auth import install_guard
+    install_guard(app)
 
     from app import cli
     cli.register(app)

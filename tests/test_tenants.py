@@ -9,6 +9,7 @@ from app import create_app, db  # noqa: E402
 from app.models.report import Report  # noqa: E402
 from app.models.tenant import Tenant  # noqa: E402
 from app.services.crypto import SecretUnreadable, decrypt, encrypt  # noqa: E402
+from tests.conftest import signed_in_client  # noqa: E402
 
 
 @pytest.fixture
@@ -97,7 +98,7 @@ def test_reports_page_hides_other_tenants(app):
     db.session.add(Report(tenant_id="dir-2", report_type="full", status="complete", score=2))
     db.session.commit()
 
-    client = app.test_client()
+    client = signed_in_client(app)
     with client.session_transaction() as sess:
         sess["active_tenant_id"] = a.id
 
@@ -121,7 +122,7 @@ def test_switching_changes_the_active_tenant(app):
     a = make_tenant("Contoso", "dir-1")
     b = make_tenant("Fabrikam", "dir-2")
 
-    client = app.test_client()
+    client = signed_in_client(app)
     with client.session_transaction() as sess:
         sess["active_tenant_id"] = a.id
 
@@ -132,14 +133,14 @@ def test_switching_changes_the_active_tenant(app):
 
 def test_switching_to_unknown_tenant_404s(app):
     make_tenant("Contoso", "dir-1")
-    assert app.test_client().post("/tenants/switch/nope").status_code == 404
+    assert signed_in_client(app).post("/tenants/switch/nope").status_code == 404
 
 
 # ---------------------------------------------------------------- management
 
 def test_duplicate_directory_id_is_rejected(app):
     make_tenant("Contoso", "dir-1")
-    resp = app.test_client().post("/tenants/api/save", json={
+    resp = signed_in_client(app).post("/tenants/api/save", json={
         "name": "Contoso Copy", "tenant_id": "dir-1",
         "client_id": "c", "client_secret": "s"})
 
@@ -148,7 +149,7 @@ def test_duplicate_directory_id_is_rejected(app):
 
 
 def test_new_tenant_requires_a_secret(app):
-    resp = app.test_client().post("/tenants/api/save", json={
+    resp = signed_in_client(app).post("/tenants/api/save", json={
         "name": "Contoso", "tenant_id": "dir-1", "client_id": "c"})
     assert resp.status_code == 400
 
@@ -156,7 +157,7 @@ def test_new_tenant_requires_a_secret(app):
 def test_editing_without_a_secret_keeps_the_stored_one(app):
     t = make_tenant("Contoso", "dir-1", secret="original")
 
-    resp = app.test_client().post("/tenants/api/save", json={
+    resp = signed_in_client(app).post("/tenants/api/save", json={
         "id": t.id, "name": "Contoso Renamed", "tenant_id": "dir-1",
         "client_id": "client-Contoso", "client_secret": ""})
 
@@ -171,7 +172,7 @@ def test_delete_keeps_reports_unless_purge_requested(app):
     db.session.add(Report(tenant_id="dir-1", report_type="full", status="complete"))
     db.session.commit()
 
-    app.test_client().delete(f"/tenants/api/delete/{t.id}")
+    signed_in_client(app).delete(f"/tenants/api/delete/{t.id}")
 
     assert db.session.get(Tenant, t.id) is None
     assert Report.query.filter_by(tenant_id="dir-1").count() == 1, "reports kept by default"
@@ -182,7 +183,7 @@ def test_delete_with_purge_removes_reports(app):
     db.session.add(Report(tenant_id="dir-1", report_type="full", status="complete"))
     db.session.commit()
 
-    app.test_client().delete(f"/tenants/api/delete/{t.id}?purge=true")
+    signed_in_client(app).delete(f"/tenants/api/delete/{t.id}?purge=true")
 
     assert Report.query.filter_by(tenant_id="dir-1").count() == 0
 

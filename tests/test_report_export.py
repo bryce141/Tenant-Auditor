@@ -9,6 +9,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 from app import create_app, db  # noqa: E402
 from app.models.report import Report, ReportCheck  # noqa: E402
 from app.services.report_export import _findings, _summary_sentence, render_html  # noqa: E402
+from tests.conftest import signed_in_client  # noqa: E402
 
 
 @pytest.fixture
@@ -137,7 +138,7 @@ def test_export_route_serves_html(app):
     r = make_report()
     add_check(r, "mfa_registration", "fail", points_possible=20, points_earned=0)
 
-    resp = app.test_client().get(f"/reports/api/export/{r.id}/html")
+    resp = signed_in_client(app).get(f"/reports/api/export/{r.id}/html")
 
     assert resp.status_code == 200
     assert resp.mimetype == "text/html"
@@ -145,7 +146,7 @@ def test_export_route_serves_html(app):
 
 
 def test_export_route_404s_for_unknown_report(app):
-    assert app.test_client().get("/reports/api/export/nope/html").status_code == 404
+    assert signed_in_client(app).get("/reports/api/export/nope/html").status_code == 404
 
 
 

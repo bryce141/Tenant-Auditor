@@ -13,6 +13,8 @@ engineering, and full-stack tooling.
 
 ## Features
 
+- **Password-protected** — every route requires a session; secrets and audit
+  data are never served to an anonymous visitor
 - **Multi-tenant** — audit any number of tenants from one install, switching
   between them without redeploying; client secrets encrypted at rest
 - **27 checks** across 8 categories — identity, conditional access, mail
@@ -130,11 +132,14 @@ pip install -r requirements.txt
 
 **3. Run it**
 ```bash
-python run.py
+python run.py            # PORT=8080 python run.py to use another port
 ```
 
-Open [http://localhost:5000](http://localhost:5000), go to **Tenants**, and add
-one. **Test connection** validates the credentials against Entra ID before
+> Port 5001, not 5000 — macOS ControlCenter (AirPlay Receiver) holds 5000.
+
+Open [http://localhost:5001](http://localhost:5001). On first run you'll be
+asked to create an administrator account — nothing is reachable until it
+exists. Then go to **Tenants** and add one. **Test connection** validates the credentials against Entra ID before
 saving.
 
 Each tenant needs its own app registration with the permissions above. Secrets
@@ -232,8 +237,14 @@ database live there so credentials and audit history survive redeploys.
 startCommand: gunicorn run:app --bind 0.0.0.0:$PORT --workers 2
 ```
 
-Set `SECRET_KEY` in the Render dashboard. Tenant credentials are entered through
-the UI rather than baked into the environment.
+Set `SECRET_KEY` in the Render dashboard, and **`SESSION_COOKIE_SECURE=true`**
+for any deployment served over TLS — otherwise the session cookie travels in
+the clear. Tenant credentials are entered through the UI rather than baked into
+the environment.
+
+On first visit you'll be asked to create the administrator account. Do that
+immediately after deploying: until it exists the setup page is open to whoever
+reaches it first.
 
 ---
 
@@ -251,10 +262,12 @@ tenant-auditor/
     ├── config.py
     ├── cli.py                    # flask audit / digest / scheduled-run
     ├── auth/
-    │   └── graph_auth.py         # MSAL tokens, tenant selection
+    │   ├── graph_auth.py         # MSAL tokens, tenant selection
+    │   └── session_auth.py       # login state, fail-closed request guard
     ├── models/
     │   ├── report.py             # Report + ReportCheck (SQLAlchemy)
-    │   └── tenant.py             # Tenant, with encrypted client secret
+    │   ├── tenant.py             # Tenant, with encrypted client secret
+    │   └── user.py               # the administrator account
     ├── services/
     │   ├── graph_client.py       # paginated Graph wrapper (JSON + CSV reports)
     │   ├── report_runner.py      # orchestration, background runs, progress

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Create administrator — Tenant Auditor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-200 min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-md">
+
+    <div class="flex items-center gap-3 mb-8 justify-center">
+      <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+        <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </div>
+      <div>
+        <p class="font-bold text-slate-100 leading-tight">Tenant Auditor</p>
+        <p class="text-xs text-slate-500 leading-tight">M365 Intelligence</p>
+      </div>
+    </div>
+
+    <form method="post" class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <h1 class="text-lg font-bold text-slate-100">Create the administrator account</h1>
+      <p class="text-sm text-slate-500 mt-1 mb-5 leading-relaxed">
+        Nothing in this installation is reachable until this exists. It holds the
+        credentials for every tenant you audit.
+      </p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+          <div class="mb-4 text-xs px-3 py-2.5 rounded-lg border
+                      {{ 'bg-red-950/50 text-red-300 border-red-900/50' if category == 'error'
+                         else 'bg-slate-800 text-slate-300 border-slate-700' }}">
+            {{ message }}
+          </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <label class="text-xs font-semibold text-slate-400">Username</label>
+      <input type="text" name="username" autocomplete="username" autofocus required
+             class="mt-1 mb-4 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm
+                    text-slate-200 focus:outline-none focus:border-blue-500 transition-colors">
+
+      <label class="text-xs font-semibold text-slate-400">Password</label>
+      <input type="password" name="password" autocomplete="new-password" required
+             class="mt-1 mb-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm
+                    text-slate-200 focus:outline-none focus:border-blue-500 transition-colors">
+      <p class="text-xs text-slate-600 mb-4">At least 12 characters. Length matters more than symbols.</p>
+
+      <label class="text-xs font-semibold text-slate-400">Confirm password</label>
+      <input type="password" name="confirm" autocomplete="new-password" required
+             class="mt-1 mb-5 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm
+                    text-slate-200 focus:outline-none focus:border-blue-500 transition-colors">
+
+      <button type="submit"
+              class="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold
+                     px-4 py-2.5 rounded-lg transition-colors">Create account and sign in</button>
+    </form>
+  </div>
+</body>
+</html>

@@ -99,6 +99,27 @@ Anything that renders text from Microsoft needs `app.utils.strip_html` first.
 Secure Score remediation arrives as HTML, and it reaches three surfaces now
 (security page, client report, email digest).
 
+## Authentication
+
+`app/auth/session_auth.py` installs a `before_request` guard that requires a
+session for **every** endpoint except those named in `PUBLIC_ENDPOINTS`. It is
+fail-closed on purpose: protecting routes with a decorator means a route added
+later is exposed until someone remembers to annotate it, and that failure is
+silent. Forgetting here locks people out instead, which gets noticed.
+
+If you add a genuinely public endpoint, add it to `PUBLIC_ENDPOINTS` — and
+think about whether it should be.
+
+An install with no `AdminUser` serves nothing but `/setup`, so adding auth
+can't leave a fresh deployment as open as it was before.
+
+There is no CSRF library. `SESSION_COOKIE_SAMESITE = "Lax"` stops the session
+cookie riding along on cross-site POST and DELETE, which covers the mutating
+endpoints. If cross-site GET ever mutates anything, that reasoning breaks and
+you need real CSRF tokens.
+
+Tests that exercise routes need `tests/conftest.py::signed_in_client`.
+
 ## Credentials
 
 Tenant secrets are Fernet-encrypted with a key derived from `SECRET_KEY`
