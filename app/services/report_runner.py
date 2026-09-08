@@ -82,12 +82,37 @@ def _save_checks(report_id, check_results):
         ))
 
 
+def _record_auth_failure(category, exc):
+    """Save a failed Report so an auth error surfaces in the UI.
+
+    Token acquisition happens before any Report row exists, so without this
+    an expired or mistyped secret produces no record at all.
+    """
+    try:
+        report = Report(
+            tenant_id=None,
+            report_type=category,
+            status="failed",
+            error=str(exc),
+            completed_at=datetime.utcnow(),
+        )
+        db.session.add(report)
+        db.session.commit()
+    except Exception:
+        # Never let error reporting take down the worker thread.
+        db.session.rollback()
+
+
 def run_category(category: str, app_context):
     """Run all checks for a single category. Called in background thread."""
     with app_context:
         try:
             headers, tenant_id = get_headers()
         except Exception as e:
+            # Record the failure. Returning silently here leaves no Report row,
+            # so the UI shows nothing at all and a bad or expired secret looks
+            # identical to a button that didn't fire.
+            _record_auth_failure(category, e)
             return
 
         report = Report(
@@ -134,6 +159,9 @@ def run_full(app_context):
         try:
             headers, tenant_id = get_headers()
         except Exception as e:
+            _record_auth_failure("full", e)
+            # Clear the overlay, which otherwise spins forever on a auth failure.
+            _set_progress(0, 0, f"Authentication failed: {e}", running=False)
             return
 
         report = Report(

@@ -29,12 +29,33 @@ PRIVILEGED_ROLE_IDS = {
 }
 
 
-def check_mfa(client: GraphClient):
+def _mfa_from_registration_report(client: GraphClient):
+    """Read MFA state from the bulk registration report — one paginated call.
+
+    Note this report omits disabled users, which is the desired behaviour here:
+    a blocked account without MFA isn't a live gap. Returns None if the report
+    is unavailable so the caller can fall back.
+    """
+    rows = client.get_all("/reports/authenticationMethods/userRegistrationDetails")
+    if isinstance(rows, dict):
+        return None
+    return [{
+        "user": r.get("userPrincipalName"),
+        "display_name": r.get("userDisplayName") or r.get("userPrincipalName"),
+        "mfa_registered": bool(r.get("isMfaRegistered")),
+        "methods": r.get("methodsRegistered") or [],
+    } for r in rows]
+
+
+def _mfa_from_user_enumeration(client: GraphClient):
+    """Fallback: one authentication/methods call per user.
+
+    Costs a request per user, so it only runs when the registration report
+    isn't available. Returns the client's error dict if user listing fails.
+    """
     users = client.get_all("/users?$select=id,displayName,userPrincipalName")
     if isinstance(users, dict):
-        return {"check_name": "mfa_registration", "display_name": "MFA Registration",
-                "category": "identity", "status": "skip", "points_earned": None, "points_possible": 20,
-                "summary": users["error"], "issues": [], "details": [], "cis_reference": CIS_MAP["mfa_registration"]["id"]}
+        return users
 
     results = []
     for user in users:
@@ -45,13 +66,35 @@ def check_mfa(client: GraphClient):
             continue
         non_pw = [m.get("@odata.type", "") for m in methods_resp if "password" not in m.get("@odata.type", "").lower()]
         results.append({"user": upn, "display_name": name, "mfa_registered": len(non_pw) > 0, "methods": non_pw})
+    return results
 
-    total = len(results)
-    no_mfa = [r for r in results if r["mfa_registered"] is False]
-    pct = (total - len(no_mfa)) / total if total else 1
-    earned = round(20 * pct)
+
+def check_mfa(client: GraphClient):
+    results = _mfa_from_registration_report(client)
+    if results is None:
+        results = _mfa_from_user_enumeration(client)
+
+    if isinstance(results, dict):
+        return {"check_name": "mfa_registration", "display_name": "MFA Registration",
+                "category": "identity", "status": "skip", "points_earned": None, "points_possible": 20,
+                "summary": results["error"], "issues": [], "details": [], "cis_reference": CIS_MAP["mfa_registration"]["id"]}
+
+    # Users whose state couldn't be read are excluded from the ratio rather
+    # than counted as failures.
+    known = [r for r in results if r["mfa_registered"] is not None]
+    total = len(known)
+    no_mfa = [r for r in known if r["mfa_registered"] is False]
+
+    if not total:
+        return {"check_name": "mfa_registration", "display_name": "MFA Registration",
+                "category": "identity", "status": "skip", "points_earned": None, "points_possible": 20,
+                "summary": "No users with readable MFA registration state",
+                "issues": [], "details": results, "cis_reference": CIS_MAP["mfa_registration"]["id"]}
+
+    missing_ratio = len(no_mfa) / total
+    earned = round(20 * (1 - missing_ratio))
     issues = [f"{r['display_name']} ({r['user']}) has no MFA registered" for r in no_mfa]
-    status = "pass" if not no_mfa else ("warn" if len(no_mfa) / total < 0.25 else "fail")
+    status = "pass" if not no_mfa else ("warn" if missing_ratio < 0.25 else "fail")
 
     return {
         "check_name": "mfa_registration", "display_name": "MFA Registration",
