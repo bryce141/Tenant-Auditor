@@ -206,7 +206,52 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid #e2e8f0;color:#94a3
 """
 
 
-def render_html(report):
+def _changes_section(diff, headline_text):
+    """Movement since the previous audit — omitted entirely when there is none."""
+    if not diff:
+        return ""
+
+    when = diff["previous"].created_at.strftime("%d %B %Y") if diff["previous"].created_at else "the previous audit"
+
+    if diff.get("unchanged"):
+        return (f'<h2>Change since {escape(when)}</h2>'
+                f'<div class="none">No change in posture since the previous audit.</div>')
+
+    delta = diff.get("score_delta")
+    delta_html = ""
+    if delta:
+        colour = "#16a34a" if delta > 0 else "#dc2626"
+        delta_html = (f'<span style="color:{colour};font-weight:700">'
+                      f'{"+" if delta > 0 else ""}{delta} points</span>')
+
+    rows = []
+    for item in diff["new_findings"]:
+        was = f"was {item['previous_status']}" if item["previous_status"] else "newly measured"
+        rows.append(("#dc2626", "New", item["check"].display_name, was))
+    for item in diff["regressed"]:
+        rows.append(("#ea580c", "Worsened", item["check"].display_name, "warning became a failure"))
+    for item in diff["resolved"]:
+        rows.append(("#16a34a", "Resolved", item["check"].display_name,
+                     f"was {item['previous_status']}"))
+    for check in diff["no_longer_measured"]:
+        rows.append(("#64748b", "Not measured", check.display_name,
+                     "no longer returned — check permissions"))
+
+    row_html = "".join(
+        f'<tr><td style="width:110px"><span style="color:{c};font-weight:700;font-size:12px;'
+        f'text-transform:uppercase;letter-spacing:.04em">{escape(label)}</span></td>'
+        f'<td><strong>{escape(name)}</strong></td>'
+        f'<td class="muted">{escape(detail)}</td></tr>'
+        for c, label, name, detail in rows
+    )
+
+    return f"""
+    <h2>Change since {escape(when)}</h2>
+    <p style="margin:0 0 14px;color:#334155">{escape(headline_text or "")} {delta_html}</p>
+    <table><tbody>{row_html}</tbody></table>"""
+
+
+def render_html(report, diff=None, diff_headline=None):
     """Build a standalone HTML document for a completed Report."""
     checks = list(report.checks)
     findings = _findings(checks)
@@ -280,6 +325,8 @@ def render_html(report):
       <div class="counts">{count_html}</div>
     </div>
   </div>
+
+  {_changes_section(diff, diff_headline)}
 
   <h2>Findings ({len(findings)})</h2>
   {findings_html}

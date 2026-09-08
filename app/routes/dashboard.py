@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, current_app, jsonify
 from app.auth.graph_auth import get_active_tenant, has_credentials
 from app.models.report import Report, ReportCheck
+from app.services.comparison import compare, find_previous, headline
 from app.services.formatting import distinct_history
 from app.services.report_runner import start_full_run, get_latest_report, get_run_progress
 
@@ -62,6 +63,14 @@ def index():
                 secure_score_check = c
                 break
 
+    # What moved since the previous full audit. Compared on full runs only,
+    # since a category re-run would otherwise read as everything else vanishing.
+    full_q = Report.query.filter_by(report_type="full", status="complete")
+    if scope:
+        full_q = full_q.filter(Report.tenant_id == scope)
+    latest_full = full_q.order_by(Report.created_at.desc()).first()
+    diff = compare(latest_full, find_previous(latest_full, Report)) if latest_full else None
+
     return render_template("dashboard.html",
                            tenant=tenant,
                            score=score,
@@ -69,6 +78,11 @@ def index():
                            alerts=alerts,
                            history=history,
                            recent=recent,
+                           diff=diff,
+                           diff_headline=headline(diff),
+                           # A tenant with no reports at all gets a first-run
+                           # screen rather than a grid of empty tiles.
+                           first_run=not recent,
                            secure_score_check=secure_score_check)
 
 

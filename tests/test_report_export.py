@@ -148,5 +148,38 @@ def test_export_route_404s_for_unknown_report(app):
     assert app.test_client().get("/reports/api/export/nope/html").status_code == 404
 
 
+
+def test_report_includes_changes_when_a_previous_run_exists(app):
+    from app.services.comparison import compare, find_previous, headline
+    from app.models.report import Report as R
+    from app.utils import utcnow
+    from datetime import timedelta
+
+    previous = Report(tenant_id="tenant-abc", report_type="full", status="complete",
+                      score=30, created_at=utcnow() - timedelta(days=7))
+    db.session.add(previous)
+    db.session.commit()
+    add_check(previous, "mfa_registration", "fail", points_earned=0, points_possible=20)
+    add_check(previous, "sspr_enabled", "pass", points_earned=5, points_possible=5)
+
+    current = make_report()
+    add_check(current, "mfa_registration", "pass", points_earned=20, points_possible=20)
+    add_check(current, "sspr_enabled", "fail", points_earned=0, points_possible=5)
+
+    diff = compare(current, find_previous(current, R))
+    html = render_html(current, diff=diff, diff_headline=headline(diff))
+
+    assert "Change since" in html
+    assert "Resolved" in html, "MFA went fail -> pass"
+    assert "New" in html, "SSPR went pass -> fail"
+
+
+def test_report_omits_the_change_section_on_a_first_run(app):
+    r = make_report()
+    add_check(r, "mfa_registration", "fail", points_possible=20, points_earned=0)
+
+    html = render_html(r, diff=None)
+
+    assert "Change since" not in html, "nothing to compare against"
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

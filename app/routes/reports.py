@@ -46,10 +46,13 @@ def export_html(report_id):
     Rendered inline rather than as an attachment so it can be reviewed and
     printed to PDF straight from the browser.
     """
+    from app.services.comparison import compare, find_previous, headline
     from app.services.report_export import render_html
 
     report = db.get_or_404(Report, report_id)
-    return Response(render_html(report), mimetype="text/html")
+    diff = compare(report, find_previous(report, Report))
+    return Response(render_html(report, diff=diff, diff_headline=headline(diff)),
+                    mimetype="text/html")
 
 
 @bp.route("/api/delete/<report_id>", methods=["DELETE"])

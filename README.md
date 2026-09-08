@@ -21,6 +21,8 @@ engineering, and full-stack tooling.
 - **Web dashboard** with score trend history and cross-category alerts
 - **Per-category runs** or a full audit with live progress
 - **Every run persisted** to SQLite, so history survives restarts
+- **Change detection** — each audit is diffed against the previous one: new
+  findings, resolutions, regressions, and controls that stopped being measured
 - **Client-ready HTML report** with severity-ranked findings and remediation,
   plus CSV export
 - **Credentials configured in the UI** — no redeploy to point at a new tenant
@@ -151,16 +153,18 @@ Once credentials are saved:
   configured, a switcher appears in the sidebar; everything else on the site is
   scoped to the selected tenant.
 - **Dashboard** (`/dashboard`) — overall score, per-category tiles, alerts, and
-  score history. **Run Full Audit** executes all 8 categories in the background
-  with a live progress overlay.
+  score history. A **Since last audit** panel lists what moved since the previous
+  full run. A tenant with no audits yet gets a first-run screen instead.
+  **Run Full Audit** executes all 8 categories in the background with a live
+  progress overlay.
 - **Security** (`/security`) — the scored checks in detail, with CIS references
   and per-check issue lists. Categories can be re-run individually.
 - **Licensing / Users / SharePoint / Exchange / Groups** — inventory views, each
   independently runnable.
 - **Reports** (`/reports`) — every run for the active tenant. **Report** opens a
-  standalone HTML audit document — executive summary, findings ranked
-  worst-first with remediation, then passing and skipped checks as evidence of
-  scope. It is fully self-contained and prints to PDF. **CSV** gives the raw
+  standalone HTML audit document — executive summary, what changed since the
+  previous audit, findings ranked worst-first with remediation, then passing and
+  skipped checks as evidence of scope. It is fully self-contained and prints to PDF. **CSV** gives the raw
   rows.
 - **Settings** (`/settings`) — update or re-test tenant credentials.
 
@@ -206,6 +210,8 @@ tenant-auditor/
     │   ├── report_runner.py      # orchestration, background runs, progress
     │   ├── report_export.py      # standalone HTML report
     │   ├── remediation.py        # per-check guidance and severity
+    │   ├── comparison.py         # run-to-run diffing
+    │   ├── formatting.py         # display labels, relative times
     │   ├── crypto.py             # secret encryption at rest
     │   └── scoring.py            # weights and CIS mapping
     ├── checks/                   # one module per category, each exposing run_all()
