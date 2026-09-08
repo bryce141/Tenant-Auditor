@@ -53,6 +53,7 @@ def save():
     tenant_id = (data.get("tenant_id") or "").strip()
     client_id = (data.get("client_id") or "").strip()
     client_secret = (data.get("client_secret") or "").strip()
+    client_name = (data.get("client_name") or "").strip() or None
     existing_id = data.get("id")
 
     if not all([name, tenant_id, client_id]):
@@ -66,13 +67,15 @@ def save():
         clash = Tenant.query.filter_by(tenant_id=tenant_id).first()
         if clash:
             return jsonify({"error": f"{tenant_id} is already configured as '{clash.name}'."}), 409
-        tenant = Tenant(name=name, tenant_id=tenant_id, client_id=client_id)
+        tenant = Tenant(name=name, tenant_id=tenant_id, client_id=client_id,
+                        client_name=client_name)
         tenant.client_secret = client_secret
         db.session.add(tenant)
     else:
         tenant.name = name
         tenant.tenant_id = tenant_id
         tenant.client_id = client_id
+        tenant.client_name = client_name
         if client_secret:
             tenant.client_secret = client_secret
 

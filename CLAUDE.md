@@ -99,6 +99,37 @@ Anything that renders text from Microsoft needs `app.utils.strip_html` first.
 Secure Score remediation arrives as HTML, and it reaches three surfaces now
 (security page, client report, email digest).
 
+## Database schema
+
+Alembic owns the schema. `db.create_all()` is no longer the source of truth —
+it creates missing *tables* and silently ignores missing *columns*, so adding a
+field worked on a fresh install and failed on a real one, at query time, with
+client data already in it.
+
+Changing a model means generating a migration:
+
+```bash
+FLASK_APP=run.py flask db migrate -m "what changed"
+FLASK_APP=run.py flask db upgrade          # startup does this too
+```
+
+**Read the generated migration before committing it.** Autogenerate misses
+things — server defaults, type changes, renames it reads as drop-plus-add.
+
+`app/schema.py` runs at startup and handles three cases: an empty database is
+built from migrations; a stamped one is upgraded; and one built by the old
+`create_all()` path is stamped **at the baseline revision, then upgraded**.
+Stamping at *head* instead would look fine and skip every migration after the
+first, permanently. `tests/test_schema.py` guards that.
+
+It catches `BaseException`, not `Exception`: flask_migrate's helpers call
+`sys.exit()` on failure, and `SystemExit` doesn't inherit from `Exception` —
+letting it through killed `flask db init` itself.
+
+Tests use in-memory databases and build their schema with `create_all()`
+directly, chosen by inspecting the URI rather than `app.config["TESTING"]`,
+because fixtures set that flag after `create_app()` has returned.
+
 ## Authentication
 
 `app/auth/session_auth.py` installs a `before_request` guard that requires a

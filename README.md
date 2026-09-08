@@ -311,6 +311,23 @@ in `CATEGORY_MAP` in `report_runner.py`, and a blueprint in `routes/`.
 
 ---
 
+## Database migrations
+
+Alembic, via Flask-Migrate. The schema updates itself when the app starts, so
+an upgrade needs no manual step — including on a database created before
+migrations existed, which is stamped and brought forward with its data intact.
+
+After changing a model:
+
+```bash
+FLASK_APP=run.py flask db migrate -m "what changed"
+```
+
+Read the generated file before committing it; autogenerate doesn't catch
+everything.
+
+---
+
 ## Tests
 
 ```bash

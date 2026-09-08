@@ -1,7 +1,8 @@
-flask
-flask-sqlalchemy
-msal
-requests
-python-dotenv
-gunicorn
 dnspython
+flask
+Flask-Migrate
+flask-sqlalchemy
+gunicorn
+msal
+python-dotenv
+requests

@@ -25,3 +25,7 @@ report.html
 
 # Generated sample output
 sample-report.html
+
+# Alembic caches
+migrations/__pycache__/
+migrations/versions/__pycache__/

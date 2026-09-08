@@ -93,6 +93,12 @@
                class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-700 focus:outline-none focus:border-blue-500">
       </div>
       <div>
+        <label class="text-xs font-semibold text-slate-400">Client name <span class="text-slate-600 font-normal">(optional)</span></label>
+        <input type="text" id="f-client-name" placeholder="Contoso Ltd"
+               class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-700 focus:outline-none focus:border-blue-500">
+        <p class="text-xs text-slate-600 mt-1">Shown as “Prepared for” on client reports. Defaults to the display name.</p>
+      </div>
+      <div>
         <label class="text-xs font-semibold text-slate-400">Directory (tenant) ID</label>
         <input type="text" id="f-tenant" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false"
                class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-700 focus:outline-none focus:border-blue-500 font-mono">
@@ -132,6 +138,7 @@ function openForm(tenant) {
   document.getElementById('f-name').value = tenant ? tenant.name : '';
   document.getElementById('f-tenant').value = tenant ? tenant.tenant_id : '';
   document.getElementById('f-client').value = tenant ? tenant.client_id : '';
+  document.getElementById('f-client-name').value = tenant ? (tenant.client_name || '') : '';
   document.getElementById('f-secret').value = '';
   document.getElementById('form-title').textContent = tenant ? 'Edit tenant' : 'Add tenant';
   // On edit the stored secret is never sent to the browser, so blank means keep.
@@ -159,6 +166,7 @@ function payload() {
     name: document.getElementById('f-name').value,
     tenant_id: document.getElementById('f-tenant').value,
     client_id: document.getElementById('f-client').value,
+    client_name: document.getElementById('f-client-name').value,
     client_secret: document.getElementById('f-secret').value,
   };
 }

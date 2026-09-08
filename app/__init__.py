@@ -1,14 +1,30 @@
+import os
+
 from flask import Flask
+from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
+migrate = Migrate()
 
 
 def create_app():
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config.from_object("app.config.Config")
 
+    # Config reads the environment when the module is first imported, which
+    # freezes it for the life of the process. Re-reading here means a change
+    # made before create_app() — by a test, a CLI invocation, or a process
+    # manager — is actually honoured, instead of silently using whatever the
+    # first import happened to see.
+    for key, var in (("SQLALCHEMY_DATABASE_URI", "DATABASE_URL"),
+                     ("SECRET_KEY", "SECRET_KEY")):
+        value = os.getenv(var)
+        if value:
+            app.config[key] = value
+
     db.init_app(app)
+    migrate.init_app(app, db)
 
     # Check guidance is shared by every template (and, later, report exports),
     # so it lives on the Jinja environment rather than being passed per-route.
@@ -40,7 +56,16 @@ def create_app():
 
     with app.app_context():
         from app.models import branding, report, tenant, user  # noqa: F401
-        db.create_all()
+
+        # Tests run against an in-memory database and build their schema
+        # directly. Checking the URI rather than app.config["TESTING"] because
+        # fixtures set that flag after create_app() has already returned.
+        uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
+        if ":memory:" in uri:
+            db.create_all()
+        else:
+            from app.schema import prepare
+            prepare(app, db)
 
         # Move a legacy config.json tenant into the tenants table so existing
         # installs keep working without re-entering credentials.

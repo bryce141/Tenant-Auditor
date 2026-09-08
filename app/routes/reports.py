@@ -60,7 +60,7 @@ def export_html(report_id):
 
     return Response(
         render_html(report, diff=diff, diff_headline=headline(diff),
-                    branding=get_branding(), client_name=tenant.name if tenant else None),
+                    branding=get_branding(), client_name=tenant.report_name if tenant else None),
         mimetype="text/html")
 
 
