@@ -39,7 +39,7 @@ def create_app():
         return {"ACTIVE_TENANTS": all_tenants, "CURRENT_TENANT": current}
 
     with app.app_context():
-        from app.models import report, tenant, user  # noqa: F401
+        from app.models import branding, report, tenant, user  # noqa: F401
         db.create_all()
 
         # Move a legacy config.json tenant into the tenants table so existing

@@ -46,13 +46,22 @@ def export_html(report_id):
     Rendered inline rather than as an attachment so it can be reviewed and
     printed to PDF straight from the browser.
     """
+    from app.models.branding import get_branding
+    from app.models.tenant import Tenant
     from app.services.comparison import compare, find_previous, headline
     from app.services.report_export import render_html
 
     report = db.get_or_404(Report, report_id)
     diff = compare(report, find_previous(report, Report))
-    return Response(render_html(report, diff=diff, diff_headline=headline(diff)),
-                    mimetype="text/html")
+
+    # "Prepared for" uses the tenant's friendly name, falling back to nothing
+    # rather than printing a bare directory GUID at a client.
+    tenant = Tenant.query.filter_by(tenant_id=report.tenant_id).first()
+
+    return Response(
+        render_html(report, diff=diff, diff_headline=headline(diff),
+                    branding=get_branding(), client_name=tenant.name if tenant else None),
+        mimetype="text/html")
 
 
 @bp.route("/api/delete/<report_id>", methods=["DELETE"])

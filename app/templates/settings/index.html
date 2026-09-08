@@ -2,320 +2,135 @@
 {% block title %}Settings — Tenant Auditor{% endblock %}
 
 {% block content %}
-<div class="p-8 max-w-2xl mx-auto w-full">
-  <div class="mb-8">
+<div class="p-8 max-w-3xl mx-auto w-full">
+
+  <div class="mb-6">
     <h1 class="text-2xl font-bold text-slate-100">Settings</h1>
-    <p class="text-sm text-slate-500 mt-0.5">Connect Tenant Auditor to your Microsoft 365 tenant</p>
+    <p class="text-sm text-slate-500 mt-0.5">Branding applied to client-facing reports</p>
   </div>
 
-  {% if has_credentials %}
-  <!-- Connected banner -->
-  <div class="flex items-center gap-3 p-4 rounded-xl bg-emerald-900/20 border border-emerald-700/40 mb-8">
-    <div class="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
-      <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-      </svg>
-    </div>
-    <div>
-      <p class="text-sm font-semibold text-emerald-300">Connected</p>
-      <p class="text-xs text-emerald-600">Credentials are configured and active.</p>
-    </div>
-    <a href="{{ url_for('dashboard.index') }}" class="ml-auto text-xs text-emerald-400 hover:text-emerald-300 font-semibold">Go to dashboard →</a>
-  </div>
-  {% endif %}
-
-  <!-- Wizard steps -->
-  <div class="flex items-center gap-0 mb-8">
-    {% for n, label in [(1, 'App Registration'), (2, 'Permissions'), (3, 'Connect')] %}
-    <div class="flex-1 flex items-center">
-      <div class="flex items-center gap-2 cursor-pointer" onclick="goStep({{ n }})">
-        <div id="step-dot-{{ n }}" class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all
-          {{ 'border-blue-500 bg-blue-500 text-white' if loop.first else 'border-slate-600 bg-transparent text-slate-500' }}">
-          {{ n }}
-        </div>
-        <span id="step-label-{{ n }}" class="text-xs font-medium hidden sm:block
-          {{ 'text-blue-400' if loop.first else 'text-slate-600' }}">
-          {{ label }}
-        </span>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+      <div class="mb-4 text-sm px-4 py-3 rounded-lg border
+                  {{ 'bg-red-950/50 text-red-300 border-red-900/50' if category == 'error'
+                     else 'bg-emerald-950/40 text-emerald-300 border-emerald-900/50' }}">
+        {{ message }}
       </div>
-      {% if not loop.last %}
-      <div id="step-line-{{ n }}" class="flex-1 h-px mx-3 transition-colors {{ 'bg-slate-700' }}"></div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <form method="post" action="{{ url_for('settings.save_branding') }}"
+        enctype="multipart/form-data" class="card p-6">
+
+    <div class="flex items-start justify-between mb-5">
+      <div>
+        <h2 class="text-sm font-semibold text-slate-200">Report branding</h2>
+        <p class="text-xs text-slate-500 mt-1 leading-relaxed max-w-md">
+          Appears on the standalone HTML report you hand to a client. Everything
+          here is optional — without it the report is unbranded, not broken.
+        </p>
+      </div>
+      {% if branding.logo_data_uri %}
+      <img src="{{ branding.logo_data_uri }}" alt="Current logo"
+           class="max-h-12 max-w-[160px] object-contain bg-white/5 rounded p-1.5">
       {% endif %}
     </div>
-    {% endfor %}
-  </div>
 
-  <!-- Step 1: Create App Registration -->
-  <div id="step-1" class="step-panel">
-    <div class="card p-6 mb-4">
-      <div class="flex items-center gap-3 mb-5">
-        <div class="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
-          <svg class="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-          </svg>
-        </div>
-        <div>
-          <p class="font-semibold text-slate-100">Create an App Registration</p>
-          <p class="text-xs text-slate-500 mt-0.5">This gives Tenant Auditor read-only access to your tenant via Microsoft Graph.</p>
+    <div class="grid sm:grid-cols-2 gap-4">
+      <div class="sm:col-span-2">
+        <label class="text-xs font-semibold text-slate-400">Firm name</label>
+        <input type="text" name="firm_name" value="{{ branding.firm_name or '' }}"
+               placeholder="Acme Security Consulting"
+               class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm
+                      text-slate-200 placeholder-slate-700 focus:outline-none focus:border-blue-500">
+        <p class="text-xs text-slate-600 mt-1">Shown as “Prepared by” on the report.</p>
+      </div>
+
+      <div>
+        <label class="text-xs font-semibold text-slate-400">Contact email</label>
+        <input type="email" name="contact_email" value="{{ branding.contact_email or '' }}"
+               placeholder="security@acme.com"
+               class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm
+                      text-slate-200 placeholder-slate-700 focus:outline-none focus:border-blue-500">
+      </div>
+
+      <div>
+        <label class="text-xs font-semibold text-slate-400">Contact phone</label>
+        <input type="text" name="contact_phone" value="{{ branding.contact_phone or '' }}"
+               placeholder="+1 555 0100"
+               class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm
+                      text-slate-200 placeholder-slate-700 focus:outline-none focus:border-blue-500">
+      </div>
+
+      <div>
+        <label class="text-xs font-semibold text-slate-400">Website</label>
+        <input type="text" name="website" value="{{ branding.website or '' }}"
+               placeholder="acme.com"
+               class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm
+                      text-slate-200 placeholder-slate-700 focus:outline-none focus:border-blue-500">
+      </div>
+
+      <div>
+        <label class="text-xs font-semibold text-slate-400">Accent colour</label>
+        <div class="flex gap-2 mt-1">
+          <input type="color" name="accent_colour" value="{{ branding.accent_colour or '#2563eb' }}"
+                 class="h-[42px] w-14 bg-slate-950 border border-slate-700 rounded-lg cursor-pointer">
+          <input type="text" value="{{ branding.accent_colour or '' }}" disabled
+                 placeholder="default blue"
+                 class="flex-1 bg-slate-950/50 border border-slate-800 rounded-lg px-3 py-2.5 text-sm
+                        text-slate-500 placeholder-slate-700">
         </div>
       </div>
 
-      <ol class="space-y-4">
-        {% set steps = [
-          ('Open Azure Portal', 'Go to portal.azure.com and sign in as a Global Admin or Application Administrator.'),
-          ('Navigate to App Registrations', 'Search for "App registrations" in the top bar and click New registration.'),
-          ('Name the app', 'Enter a name like "Tenant Auditor" — the name is just for your reference.'),
-          ('Set account type', 'Select "Accounts in this organizational directory only (Single tenant)" and click Register.'),
-          ('Note your IDs', 'Copy the Application (client) ID and Directory (tenant) ID from the overview page — you\'ll need them in Step 3.'),
-          ('Create a client secret', 'Go to Certificates & secrets → New client secret. Set an expiry and copy the Value immediately — it won\'t show again.'),
-        ] %}
-        {% for title, desc in steps %}
-        <li class="flex gap-3">
-          <span class="w-5 h-5 rounded-full bg-slate-700 text-slate-400 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{{ loop.index }}</span>
-          <div>
-            <p class="text-sm font-medium text-slate-200">{{ title }}</p>
-            <p class="text-xs text-slate-500 mt-0.5 leading-relaxed">{{ desc }}</p>
-          </div>
-        </li>
-        {% endfor %}
-      </ol>
-    </div>
-
-    <div class="flex justify-end">
-      <button onclick="goStep(2)"
-              class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2">
-        Next: Grant permissions
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-        </svg>
-      </button>
-    </div>
-  </div>
-
-  <!-- Step 2: Permissions -->
-  <div id="step-2" class="step-panel hidden">
-    <div class="card p-6 mb-4">
-      <div class="flex items-center gap-3 mb-5">
-        <div class="w-9 h-9 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center shrink-0">
-          <svg class="w-5 h-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
-          </svg>
-        </div>
-        <div>
-          <p class="font-semibold text-slate-100">Grant API Permissions</p>
-          <p class="text-xs text-slate-500 mt-0.5">All permissions are Application type and read-only. Grant admin consent after adding.</p>
-        </div>
+      <div class="sm:col-span-2">
+        <label class="text-xs font-semibold text-slate-400">Logo</label>
+        <input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/gif"
+               class="mt-1 w-full text-sm text-slate-400 file:mr-3 file:py-2 file:px-3
+                      file:rounded-lg file:border-0 file:text-xs file:font-semibold
+                      file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700
+                      file:cursor-pointer cursor-pointer">
+        <p class="text-xs text-slate-600 mt-1">
+          PNG, JPEG, WebP or GIF, under 200 KB. It's embedded in every report, so
+          the report stays self-contained. SVG isn't accepted — it can carry script,
+          and these reports get opened in clients' browsers.
+        </p>
+        {% if branding.logo_data_uri %}
+        <label class="flex items-center gap-2 mt-2.5 text-xs text-slate-500 cursor-pointer">
+          <input type="checkbox" name="remove_logo" value="yes" class="rounded bg-slate-950 border-slate-700">
+          Remove the current logo
+        </label>
+        {% endif %}
       </div>
 
-      <p class="text-xs text-slate-500 mb-3">In your App Registration → API permissions → Add a permission → Microsoft Graph → Application permissions, add each of these:</p>
-
-      <div class="space-y-1 mb-5">
-        {% set perms = [
-          ('User.Read.All', 'Users, MFA, sign-in activity', '#3b82f6'),
-          ('Directory.Read.All', 'Groups, roles, admin roles', '#3b82f6'),
-          ('Policy.Read.All', 'Conditional Access, SSPR, named locations', '#8b5cf6'),
-          ('AuditLog.Read.All', 'Sign-in logs, risky users', '#8b5cf6'),
-          ('Reports.Read.All', 'SharePoint, OneDrive, Exchange, M365 app usage', '#10b981'),
-          ('Sites.Read.All', 'SharePoint site details', '#10b981'),
-          ('Group.Read.All', 'Group members and owners', '#f59e0b'),
-          ('Organization.Read.All', 'Tenant info, subscribed SKUs', '#f59e0b'),
-          ('RoleManagement.Read.All', 'PIM and role assignments', '#ef4444'),
-          ('Application.Read.All', 'App registrations and service principals', '#ef4444'),
-          ('MailboxSettings.Read', 'Mailbox forwarding rules', '#06b6d4'),
-          ('DeviceManagementManagedDevices.Read.All', 'Intune compliance (optional)', '#64748b'),
-        ] %}
-        {% for perm, desc, color in perms %}
-        <div class="flex items-center gap-3 py-2 px-3 rounded-lg bg-slate-900/60 border border-slate-700/40 group">
-          <code class="text-xs font-mono w-64 shrink-0" style="color: {{ color }}">{{ perm }}</code>
-          <p class="text-xs text-slate-500 flex-1">{{ desc }}</p>
-          <button onclick="copyText('{{ perm }}')" title="Copy"
-                  class="text-slate-700 hover:text-slate-400 transition-colors opacity-0 group-hover:opacity-100">
-            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-            </svg>
-          </button>
-        </div>
-        {% endfor %}
-      </div>
-
-      <div class="flex items-start gap-3 p-3 rounded-lg bg-amber-900/20 border border-amber-700/30">
-        <svg class="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
-        <p class="text-xs text-amber-300">After adding all permissions, click <strong>Grant admin consent for [your org]</strong> — otherwise the app won't be able to read data.</p>
+      <div class="sm:col-span-2">
+        <label class="text-xs font-semibold text-slate-400">Footer note</label>
+        <textarea name="footer_note" rows="2"
+                  placeholder="Confidential — prepared for the named client only."
+                  class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm
+                         text-slate-200 placeholder-slate-700 focus:outline-none focus:border-blue-500
+                         resize-none">{{ branding.footer_note or '' }}</textarea>
       </div>
     </div>
 
-    <div class="flex justify-between">
-      <button onclick="goStep(1)" class="px-4 py-2 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors">← Back</button>
-      <button onclick="goStep(3)"
-              class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2">
-        Next: Connect
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-        </svg>
-      </button>
+    <div class="flex items-center justify-between mt-6 pt-5 border-t border-slate-800">
+      <a href="{{ url_for('reports.index') }}" class="text-xs text-slate-500 hover:text-slate-300">
+        Preview it on a report →
+      </a>
+      <button type="submit"
+              class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-5 py-2.5
+                     rounded-lg transition-colors">Save branding</button>
     </div>
-  </div>
+  </form>
 
-  <!-- Step 3: Enter credentials -->
-  <div id="step-3" class="step-panel hidden">
-    <div class="card p-6 mb-4">
-      <div class="flex items-center gap-3 mb-5">
-        <div class="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
-          <svg class="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
-          </svg>
-        </div>
-        <div>
-          <p class="font-semibold text-slate-100">Enter your credentials</p>
-          <p class="text-xs text-slate-500 mt-0.5">Stored locally. Never sent anywhere except Microsoft's login endpoint.</p>
-        </div>
-      </div>
-
-      <div class="space-y-4">
-        <div>
-          <label class="block text-xs font-semibold text-slate-400 mb-1.5">Tenant ID</label>
-          <input id="tenant_id" type="text" value="{{ tenant_id or '' }}"
-                 placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                 class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-700 focus:outline-none focus:border-blue-500 transition-colors font-mono">
-          <p class="text-xs text-slate-600 mt-1">Found on your App Registration overview page — "Directory (tenant) ID"</p>
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-slate-400 mb-1.5">Client ID</label>
-          <input id="client_id" type="text" value="{{ client_id or '' }}"
-                 placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                 class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-700 focus:outline-none focus:border-blue-500 transition-colors font-mono">
-          <p class="text-xs text-slate-600 mt-1">Found on your App Registration overview page — "Application (client) ID"</p>
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-slate-400 mb-1.5">Client Secret</label>
-          <input id="client_secret" type="password"
-                 placeholder="Enter client secret value"
-                 class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-700 focus:outline-none focus:border-blue-500 transition-colors font-mono">
-          <p class="text-xs text-slate-600 mt-1">The secret Value from Certificates & secrets — not the Secret ID. {{ 'Leave blank to keep existing.' if has_credentials }}</p>
-        </div>
-      </div>
-
-      <div id="result" class="mt-4 hidden">
-        <p id="result-msg" class="text-sm"></p>
-      </div>
-
-      <div class="flex items-center gap-3 mt-6 pt-5 border-t border-slate-700/50">
-        <button id="test-btn" onclick="testConnection()"
-                class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium rounded-lg transition-colors flex items-center gap-2">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-          Test Connection
-        </button>
-        <button id="save-btn" onclick="saveSettings()"
-                class="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-          </svg>
-          Save & Launch
-        </button>
-      </div>
-    </div>
-
-    <div class="flex justify-start">
-      <button onclick="goStep(2)" class="px-4 py-2 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors">← Back</button>
-    </div>
+  <div class="card p-5 mt-4">
+    <h2 class="text-sm font-semibold text-slate-200 mb-1">Tenant credentials</h2>
+    <p class="text-xs text-slate-500 leading-relaxed">
+      Credentials live on each tenant now, not here.
+      <a href="{{ url_for('tenants.index') }}" class="text-blue-400 hover:text-blue-300">Manage tenants →</a>
+    </p>
   </div>
 
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-let currentStep = {{ '3' if has_credentials else '1' }};
-
-function goStep(n) {
-  document.querySelectorAll('.step-panel').forEach(p => p.classList.add('hidden'));
-  document.getElementById('step-' + n).classList.remove('hidden');
-
-  for (let i = 1; i <= 3; i++) {
-    const dot = document.getElementById('step-dot-' + i);
-    const label = document.getElementById('step-label-' + i);
-    const line = document.getElementById('step-line-' + i);
-
-    if (i < n) {
-      dot.className = 'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all border-emerald-500 bg-emerald-500 text-white';
-      dot.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>';
-      if (label) label.className = 'text-xs font-medium hidden sm:block text-emerald-400';
-      if (line) line.className = 'flex-1 h-px mx-3 transition-colors bg-emerald-700/50';
-    } else if (i === n) {
-      dot.className = 'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all border-blue-500 bg-blue-500 text-white';
-      dot.textContent = i;
-      if (label) label.className = 'text-xs font-medium hidden sm:block text-blue-400';
-      if (line) line.className = 'flex-1 h-px mx-3 transition-colors bg-slate-700';
-    } else {
-      dot.className = 'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all border-slate-600 bg-transparent text-slate-500';
-      dot.textContent = i;
-      if (label) label.className = 'text-xs font-medium hidden sm:block text-slate-600';
-      if (line) line.className = 'flex-1 h-px mx-3 transition-colors bg-slate-700';
-    }
-  }
-  currentStep = n;
-}
-
-function copyText(text) {
-  navigator.clipboard.writeText(text).then(() => showToast('Copied: ' + text));
-}
-
-async function testConnection() {
-  const btn = document.getElementById('test-btn');
-  btn.disabled = true; btn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> Testing…';
-  const payload = getPayload();
-  if (!payload) { btn.disabled = false; btn.innerHTML = 'Test Connection'; return; }
-  try {
-    const r = await fetch('/settings/api/test', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-    const data = await r.json();
-    showResult(data.status === 'ok' ? '✓ Connection successful! Click Save & Launch.' : '✗ ' + (data.error || 'Failed'), data.status === 'ok');
-  } catch(e) { showResult('✗ Request failed', false); }
-  btn.disabled = false;
-  btn.innerHTML = '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> Test Connection';
-}
-
-async function saveSettings() {
-  const btn = document.getElementById('save-btn');
-  btn.disabled = true; btn.textContent = 'Saving…';
-  const payload = getPayload();
-  if (!payload) { btn.disabled = false; btn.textContent = 'Save & Launch'; return; }
-  try {
-    const r = await fetch('/settings/api/save', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-    const data = await r.json();
-    if (data.status === 'saved') {
-      showResult('✓ Saved! Redirecting to dashboard…', true);
-      showToast('Connected! Taking you to the dashboard.');
-      setTimeout(() => window.location.href = '/dashboard/', 1200);
-    } else {
-      showResult('✗ ' + (data.error || 'Save failed'), false);
-      btn.disabled = false; btn.textContent = 'Save & Launch';
-    }
-  } catch(e) { showResult('✗ Request failed', false); btn.disabled = false; btn.textContent = 'Save & Launch'; }
-}
-
-function getPayload() {
-  const tenant_id = document.getElementById('tenant_id').value.trim();
-  const client_id = document.getElementById('client_id').value.trim();
-  const client_secret = document.getElementById('client_secret').value.trim();
-  if (!tenant_id || !client_id) {
-    showResult('Tenant ID and Client ID are required.', false); return null;
-  }
-  return { tenant_id, client_id, client_secret };
-}
-
-function showResult(msg, success) {
-  const el = document.getElementById('result');
-  const msg_el = document.getElementById('result-msg');
-  el.classList.remove('hidden');
-  msg_el.textContent = msg;
-  msg_el.className = success ? 'text-sm text-emerald-400' : 'text-sm text-red-400';
-}
-
-// Start on correct step
-goStep(currentStep);
-</script>
 {% endblock %}

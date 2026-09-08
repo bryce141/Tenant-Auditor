@@ -150,7 +150,12 @@ CSS = """
 body{margin:0;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
      color:#0f172a;background:#f8fafc}
 .wrap{max-width:960px;margin:0 auto;padding:40px 32px 64px}
-header.doc{border-bottom:3px solid #0f172a;padding-bottom:20px;margin-bottom:32px}
+header.doc{border-bottom:3px solid var(--accent,#0f172a);padding-bottom:20px;margin-bottom:32px}
+header.doc .logo{max-height:48px;max-width:220px;object-fit:contain;margin-bottom:14px;display:block}
+header.doc .prepared{margin:0 0 6px;font-size:14px;color:#334155}
+header.doc .prepared:empty{display:none}
+footer .contact{margin-top:6px}
+footer .note{margin-top:8px;font-style:italic}
 header.doc h1{margin:0 0 6px;font-size:26px;letter-spacing:-.01em}
 header.doc .meta{color:#64748b;font-size:13px}
 .scorecard{display:flex;gap:28px;align-items:center;background:#fff;border:1px solid #e2e8f0;
@@ -251,8 +256,11 @@ def _changes_section(diff, headline_text):
     <table><tbody>{row_html}</tbody></table>"""
 
 
-def render_html(report, diff=None, diff_headline=None):
-    """Build a standalone HTML document for a completed Report."""
+def render_html(report, diff=None, diff_headline=None, branding=None, client_name=None):
+    """Build a standalone HTML document for a completed Report.
+
+    branding is optional: without it the report is unbranded, not broken.
+    """
     checks = list(report.checks)
     findings = _findings(checks)
     counts = _severity_counts(findings)
@@ -260,6 +268,34 @@ def render_html(report, diff=None, diff_headline=None):
     scored = [{"points_earned": c.points_earned, "points_possible": c.points_possible}
               for c in checks if c.points_possible]
     score = calculate_security_score(scored)["overall"] if scored else None
+
+    accent = (getattr(branding, "accent_colour", None) or "#0f172a") if branding else "#0f172a"
+
+    logo_html = ""
+    if branding is not None and branding.logo_data_uri:
+        # Already a data URI produced by our own encoder, so it embeds directly
+        # and the document stays self-contained.
+        logo_html = (f'<img class="logo" src="{escape(branding.logo_data_uri)}" '
+                     f'alt="{escape(branding.firm_name or "")}">')
+
+    prepared_bits = []
+    if client_name:
+        prepared_bits.append(f"Prepared for <strong>{escape(client_name)}</strong>")
+    if branding is not None and branding.firm_name:
+        prepared_bits.append(f"by <strong>{escape(branding.firm_name)}</strong>")
+    prepared_html = " ".join(prepared_bits)
+
+    contact_bits = []
+    if branding is not None:
+        for value in (branding.contact_email, branding.contact_phone, branding.website):
+            if value:
+                contact_bits.append(escape(value))
+    contact_html = (f'<div class="contact">{" &middot; ".join(contact_bits)}</div>'
+                    if contact_bits else "")
+
+    footer_note_html = ""
+    if branding is not None and branding.footer_note:
+        footer_note_html = f'<div class="note">{escape(branding.footer_note)}</div>'
 
     generated = datetime.now(timezone.utc).strftime("%d %B %Y at %H:%M UTC")
     audited = report.created_at.strftime("%d %B %Y") if report.created_at else "unknown date"
@@ -299,13 +335,15 @@ def render_html(report, diff=None, diff_headline=None):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Tenant Security Audit — {escape(audited)}</title>
-<style>{CSS}</style>
+<style>:root{{--accent:{accent}}}{CSS}</style>
 </head>
 <body>
 <div class="wrap">
 
   <header class="doc">
+    {logo_html}
     <h1>Microsoft 365 Tenant Security Audit</h1>
+    <p class="prepared">{prepared_html}</p>
     <p class="meta">
       Tenant {escape(report.tenant_id or "unknown")} &middot;
       Audit run {escape(audited)} &middot;
@@ -340,6 +378,8 @@ def render_html(report, diff=None, diff_headline=None):
   <footer>
     Scored against CIS Microsoft 365 Foundations Benchmark controls.
     Checks that could not run are excluded from the score rather than failed.
+    {contact_html}
+    {footer_note_html}
   </footer>
 
 </div>
