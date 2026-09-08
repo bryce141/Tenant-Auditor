@@ -206,6 +206,12 @@ def run_full(app_context):
                 all_results.extend(r for r in results if isinstance(r, dict))
 
             _set_progress(total, total, "Finalizing results…", running=True)
+
+            # Also attach every check to the full report itself. Without this a
+            # full report carries a score and nothing else, so exporting one
+            # yields an empty file — the per-category reports held all the rows.
+            _save_checks(report_id, all_results)
+
             security_checks = [r for r in all_results if r.get("category") in SECURITY_CATEGORIES
                                 and r.get("points_earned") is not None]
             score_data = calculate_security_score(security_checks)

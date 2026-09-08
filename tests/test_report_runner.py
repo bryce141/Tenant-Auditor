@@ -65,5 +65,32 @@ def test_full_run_auth_failure_clears_the_progress_overlay(app, monkeypatch):
     assert reports[0].status == "failed"
 
 
+def test_full_run_attaches_checks_to_the_full_report(app, monkeypatch):
+    """A full report used to carry a score and no checks, so exports came out empty."""
+    monkeypatch.setattr(report_runner, "get_headers", lambda: ({}, "tenant-1"))
+    monkeypatch.setattr(report_runner, "GraphClient", lambda headers: object())
+
+    def fake_module(category):
+        return type("M", (), {"run_all": staticmethod(lambda client: [{
+            "category": category, "check_name": f"{category}_check",
+            "display_name": f"{category} check", "status": "pass",
+            "points_earned": 5, "points_possible": 5, "summary": "ok", "issues": [],
+        }])})
+
+    monkeypatch.setattr(report_runner, "CATEGORY_MAP",
+                        {"identity": fake_module("identity"),
+                         "licensing": fake_module("licensing")})
+
+    report_runner.run_full(app.app_context())
+
+    full = Report.query.filter_by(report_type="full").one()
+    assert full.status == "complete"
+    assert len(full.checks) == 2, "full report must carry its own checks, not just a score"
+
+    # Category reports still exist independently, for the dashboard tiles.
+    assert Report.query.filter_by(report_type="identity").count() == 1
+    assert Report.query.filter_by(report_type="licensing").count() == 1
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

@@ -35,6 +35,19 @@ def export_csv(report_id):
     )
 
 
+@bp.route("/api/export/<report_id>/html")
+def export_html(report_id):
+    """Standalone HTML report — the client-facing deliverable.
+
+    Rendered inline rather than as an attachment so it can be reviewed and
+    printed to PDF straight from the browser.
+    """
+    from app.services.report_export import render_html
+
+    report = Report.query.get_or_404(report_id)
+    return Response(render_html(report), mimetype="text/html")
+
+
 @bp.route("/api/delete/<report_id>", methods=["DELETE"])
 def delete(report_id):
     from app import db

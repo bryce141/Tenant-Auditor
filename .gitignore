@@ -22,3 +22,6 @@ report.html
 # Editor / local tooling
 .claude/settings.local.json
 .vscode/
+
+# Generated sample output
+sample-report.html

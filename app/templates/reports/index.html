@@ -56,6 +56,8 @@
             <td class="px-5 py-3 text-right">
               <div class="flex items-center justify-end gap-3">
                 {% if r.status == 'complete' %}
+                <a href="{{ url_for('reports.export_html', report_id=r.id) }}" target="_blank"
+                   rel="noopener" class="text-xs text-emerald-400 hover:text-emerald-300">Report</a>
                 <a href="{{ url_for('reports.export_csv', report_id=r.id) }}"
                    class="text-xs text-blue-400 hover:text-blue-300">CSV</a>
                 {% endif %}
