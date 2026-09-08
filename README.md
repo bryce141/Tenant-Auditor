@@ -229,6 +229,8 @@ without ever printing the password.
 
 ## Deployment
 
+See **[DEPLOYING.md](DEPLOYING.md)** for the full checklist and the traps.
+
 `render.yaml` provisions the app on [Render](https://render.com) with a 1 GB
 persistent disk mounted at `/var/data`. Both `config.json` and the SQLite
 database live there so credentials and audit history survive redeploys.
