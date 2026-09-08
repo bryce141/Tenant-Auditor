@@ -14,6 +14,7 @@ from collections import defaultdict
 from app.checks.base import check
 from app.services.graph_client import GraphClient, GraphError
 from app.services.scoring import CIS_MAP
+from app.utils import strip_html
 
 STALE_DAYS = 90
 
@@ -389,7 +390,8 @@ def check_secure_score(client: GraphClient):
                 "max_score": round(max_pts, 1),
                 "gap": round(max_pts - score, 1),
                 "category": profile.get("controlCategory", ""),
-                "remediation": profile.get("remediation", ""),
+                # Microsoft returns this as HTML; we render it as text.
+                "remediation": strip_html(profile.get("remediation", "")),
                 "action_url": profile.get("actionUrl", ""),
                 "implementation_status": c.get("implementationStatus", "notImplemented"),
             })

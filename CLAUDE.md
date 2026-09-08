@@ -88,6 +88,17 @@ The suite must pass under `-W error::DeprecationWarning`.
   the audited directory and must not be able to inject markup into a document
   someone forwards to a client.
 
+## Scheduling
+
+`app/cli.py` provides `flask audit`, `flask digest`, and `flask scheduled-run`,
+driven by cron rather than an in-process scheduler — see the README for why.
+`audit` exits non-zero when any tenant fails, so don't swallow that: it's the
+only signal cron has that the tool stopped working.
+
+Anything that renders text from Microsoft needs `app.utils.strip_html` first.
+Secure Score remediation arrives as HTML, and it reaches three surfaces now
+(security page, client report, email digest).
+
 ## Credentials
 
 Tenant secrets are Fernet-encrypted with a key derived from `SECRET_KEY`

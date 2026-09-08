@@ -65,4 +65,7 @@ def create_app():
         app.register_blueprint(reports.bp)
         app.register_blueprint(settings.bp)
 
+    from app import cli
+    cli.register(app)
+
     return app

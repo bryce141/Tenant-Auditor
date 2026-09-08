@@ -23,6 +23,8 @@ engineering, and full-stack tooling.
 - **Every run persisted** to SQLite, so history survives restarts
 - **Change detection** — each audit is diffed against the previous one: new
   findings, resolutions, regressions, and controls that stopped being measured
+- **Scheduled audits and email digest** — one command for cron, leading with
+  what changed rather than restating the score
 - **Client-ready HTML report** with severity-ranked findings and remediation,
   plus CSV export
 - **Credentials configured in the UI** — no redeploy to point at a new tenant
@@ -158,7 +160,8 @@ Once credentials are saved:
   **Run Full Audit** executes all 8 categories in the background with a live
   progress overlay.
 - **Security** (`/security`) — the scored checks in detail, with CIS references
-  and per-check issue lists. Categories can be re-run individually.
+  and per-check issue lists. Filters default to **Needs action**, since that is
+  what the page is usually opened for. Categories can be re-run individually.
 - **Licensing / Users / SharePoint / Exchange / Groups** — inventory views, each
   independently runnable.
 - **Reports** (`/reports`) — every run for the active tenant. **Report** opens a
@@ -170,6 +173,52 @@ Once credentials are saved:
 
 Runs execute in a background thread, so the UI stays responsive; the relevant
 page polls its `api/status` endpoint until the run completes.
+
+---
+
+## Scheduled audits
+
+Scheduling lives outside the app deliberately. An in-process scheduler only
+runs while the web process is alive, and a host that sleeps an idle service
+would stop auditing without telling anyone — a security tool silently not
+running is a worse failure than a crontab entry.
+
+```bash
+flask audit                    # audit every tenant
+flask audit --tenant Contoso   # just one
+flask digest --dry-run         # preview the email, send nothing
+flask digest                   # send it
+flask scheduled-run            # audit everything, then send the digest
+```
+
+`audit` exits non-zero if any tenant fails, so cron and CI can alert on it.
+`scheduled-run` still sends the digest when an audit fails — a tenant that
+didn't audit is exactly what the recipient needs to know.
+
+Weekly, Monday at 07:00:
+
+```cron
+0 7 * * 1 cd /path/to/tenant-auditor && FLASK_APP=run.py .venv/bin/flask scheduled-run
+```
+
+On Render, use a Cron Job service with the same command against the same disk.
+
+### Email configuration
+
+SMTP only, via environment variables — no third-party account needed:
+
+| Variable | Notes |
+|---|---|
+| `SMTP_HOST` | required to send |
+| `SMTP_PORT` | default `587` |
+| `SMTP_USER` | omit for a relay that doesn't authenticate |
+| `SMTP_PASSWORD` | |
+| `SMTP_FROM` | defaults to `SMTP_USER` |
+| `SMTP_TLS` | `false` to disable STARTTLS |
+| `DIGEST_TO` | comma-separated recipients |
+
+`flask digest --dry-run` prints the digest and shows which settings are set,
+without ever printing the password.
 
 ---
 
@@ -200,6 +249,7 @@ tenant-auditor/
 └── app/
     ├── __init__.py               # app factory, blueprint registration
     ├── config.py
+    ├── cli.py                    # flask audit / digest / scheduled-run
     ├── auth/
     │   └── graph_auth.py         # MSAL tokens, tenant selection
     ├── models/
@@ -211,6 +261,8 @@ tenant-auditor/
     │   ├── report_export.py      # standalone HTML report
     │   ├── remediation.py        # per-check guidance and severity
     │   ├── comparison.py         # run-to-run diffing
+    │   ├── digest.py             # scheduled email summary
+    │   ├── mailer.py             # SMTP delivery
     │   ├── formatting.py         # display labels, relative times
     │   ├── crypto.py             # secret encryption at rest
     │   └── scoring.py            # weights and CIS mapping

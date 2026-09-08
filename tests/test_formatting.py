@@ -106,5 +106,37 @@ def test_history_ignores_reports_without_a_score():
     assert [r.score for r in distinct_history(reports)] == [50]
 
 
+
+# --------------------------------------------------------------- strip_html
+
+@pytest.mark.parametrize("raw,expected", [
+    ("<p>Assign more than one user a global administrator role.</p>",
+     "Assign more than one user a global administrator role"),
+    ("Go to Entra ID &gt; Enterprise applications", "Go to Entra ID > Enterprise applications"),
+    ("<br/>spaced<br>out", "spaced out"),
+    ("", ""),
+    (None, ""),
+    ("plain text, no markup", "plain text, no markup"),
+])
+def test_strip_html_produces_readable_text(raw, expected):
+    from app.utils import strip_html
+    assert strip_html(raw) == expected
+
+
+def test_list_items_become_sentences_not_a_run_on():
+    """Microsoft returns remediation as <ol><li>, which would otherwise merge."""
+    from app.utils import strip_html
+    out = strip_html("<ol><li>First step</li><li>Second step</li></ol>")
+    assert out == "First step. Second step"
+
+
+def test_no_tags_survive_stripping():
+    """Entities become their characters — &gt; should read as '>', not vanish."""
+    from app.utils import strip_html
+    out = strip_html('<ol><li>Go to <a href="https://x">Entra</a> &gt; apps</li></ol>')
+
+    assert "<" not in out, "no tags may remain"
+    assert "href" not in out
+    assert out == "Go to Entra > apps"
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

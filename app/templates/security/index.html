@@ -52,6 +52,33 @@
   </div>
   {% else %}
 
+  {# Filter bar. 28 checks is a long scroll, and the ones that need action are
+     scattered among the ones that don't. Counts are rendered server-side so the
+     bar is honest before any JavaScript runs. #}
+  {# Secure Score has its own panel above and no row here, so exclude it or the
+     counts disagree with what's actually listed. #}
+  {% set listed = all_checks | rejectattr('check_name', 'eq', 'secure_score') | list %}
+  {% set counts = {
+    'all': listed | length,
+    'action': listed | selectattr('status', 'in', ['fail', 'warn']) | list | length,
+    'pass': listed | selectattr('status', 'eq', 'pass') | list | length,
+    'skip': listed | selectattr('status', 'eq', 'skip') | list | length,
+  } %}
+  <div class="flex items-center gap-2 mb-4 flex-wrap">
+    {% for key, label in [('action', 'Needs action'), ('all', 'All'), ('pass', 'Passing'), ('skip', 'Not measured')] %}
+      {% if counts[key] %}
+      <button type="button" data-filter="{{ key }}"
+              class="filter-btn text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors
+                     {{ 'bg-blue-600/15 text-blue-300 border-blue-600/40' if key == 'action'
+                        else 'bg-slate-800/60 text-slate-400 border-slate-700 hover:text-slate-200' }}">
+        {{ label }}
+        <span class="text-slate-600 ml-1">{{ counts[key] }}</span>
+      </button>
+      {% endif %}
+    {% endfor %}
+    <p id="filter-empty" class="text-xs text-slate-600 hidden">Nothing matches that filter.</p>
+  </div>
+
   <!-- Score Chart -->
   {% if history %}
   <div class="card p-5 mb-6">
@@ -132,7 +159,7 @@
 
   {% for cat_key, cat_name, cat_desc, cat_color in categories %}
   {% set cat_report = reports.get(cat_key) %}
-  <div class="card mb-4 overflow-visible">
+  <div class="card mb-4 overflow-visible category-card">
     <div class="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
       <div class="flex items-center gap-3">
         <div class="w-2 h-8 rounded-full" style="background: {{ cat_color }}30; border-left: 3px solid {{ cat_color }}60"></div>
@@ -156,7 +183,8 @@
     {% if cat_report %}
     <div class="divide-y divide-slate-800/60">
       {% for check in cat_report.checks if check.check_name != 'secure_score' %}
-      <div class="px-5 py-3.5 hover:bg-slate-700/10 transition-colors">
+      <div class="check-row px-5 py-3.5 hover:bg-slate-700/10 transition-colors"
+           data-status="{{ check.status }}">
         <div class="flex items-start justify-between gap-4">
           <div class="flex items-start gap-3 min-w-0">
             <!-- Status dot -->
@@ -258,6 +286,54 @@
 // Rendered from app/services/remediation.py so the keys can never drift
 // away from the real check_name values again — see tests/test_remediation.py.
 const CHECK_INFO = {{ CHECK_GUIDANCE | tojson }};
+
+// Check filtering. Defaults to "Needs action" — with 28 checks, the ones
+// requiring work are what someone opens this page for.
+const FILTERS = {
+  all:    () => true,
+  action: s => s === 'fail' || s === 'warn',
+  pass:   s => s === 'pass',
+  skip:   s => s === 'skip',
+};
+
+function applyFilter(key) {
+  const match = FILTERS[key] || FILTERS.all;
+  let visible = 0;
+
+  document.querySelectorAll('.check-row').forEach(row => {
+    const show = match(row.dataset.status);
+    row.classList.toggle('hidden', !show);
+    if (show) visible++;
+  });
+
+  // Hide a category whose rows are all filtered out, so the page doesn't end
+  // up as a column of empty headers.
+  document.querySelectorAll('.category-card').forEach(card => {
+    const rows = card.querySelectorAll('.check-row');
+    const anyVisible = [...rows].some(r => !r.classList.contains('hidden'));
+    card.classList.toggle('hidden', rows.length > 0 && !anyVisible);
+  });
+
+  document.getElementById('filter-empty').classList.toggle('hidden', visible > 0);
+
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    const on = btn.dataset.filter === key;
+    btn.classList.toggle('bg-blue-600/15', on);
+    btn.classList.toggle('text-blue-300', on);
+    btn.classList.toggle('border-blue-600/40', on);
+    btn.classList.toggle('bg-slate-800/60', !on);
+    btn.classList.toggle('text-slate-400', !on);
+    btn.classList.toggle('border-slate-700', !on);
+  });
+}
+
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => applyFilter(btn.dataset.filter));
+});
+
+if (document.querySelector('.filter-btn[data-filter="action"]')) {
+  applyFilter('action');
+}
 
 const tooltip = document.getElementById('tooltip-box');
 let activeBtn = null;
