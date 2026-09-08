@@ -1,6 +1,6 @@
 import uuid
-from datetime import datetime
 from app import db
+from app.utils import utcnow
 
 
 class Report(db.Model):
@@ -12,7 +12,7 @@ class Report(db.Model):
     status = db.Column(db.String(20), default="running")  # running | complete | failed
     score = db.Column(db.Integer, nullable=True)
     error = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     completed_at = db.Column(db.DateTime, nullable=True)
 
     checks = db.relationship("ReportCheck", backref="report", lazy=True, cascade="all, delete-orphan")
@@ -46,7 +46,7 @@ class ReportCheck(db.Model):
     issues = db.Column(db.JSON, nullable=True)   # list of issue strings
     details = db.Column(db.JSON, nullable=True)  # full raw data
     cis_reference = db.Column(db.String(50), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     def to_dict(self):
         return {

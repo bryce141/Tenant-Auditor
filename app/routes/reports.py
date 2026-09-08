@@ -1,6 +1,7 @@
 import csv
 import io
 from flask import Blueprint, render_template, jsonify, Response
+from app import db
 from app.models.report import Report, ReportCheck
 
 bp = Blueprint("reports", __name__, url_prefix="/reports")
@@ -16,7 +17,7 @@ def index():
 
 @bp.route("/api/export/<report_id>")
 def export_csv(report_id):
-    report = Report.query.get_or_404(report_id)
+    report = db.get_or_404(Report, report_id)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -44,14 +45,13 @@ def export_html(report_id):
     """
     from app.services.report_export import render_html
 
-    report = Report.query.get_or_404(report_id)
+    report = db.get_or_404(Report, report_id)
     return Response(render_html(report), mimetype="text/html")
 
 
 @bp.route("/api/delete/<report_id>", methods=["DELETE"])
 def delete(report_id):
-    from app import db
-    report = Report.query.get_or_404(report_id)
+    report = db.get_or_404(Report, report_id)
     db.session.delete(report)
     db.session.commit()
     return jsonify({"status": "deleted"})

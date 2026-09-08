@@ -3,7 +3,8 @@ Orchestrates running checks for a given category (or all categories),
 saves results to the DB as Report + ReportCheck records.
 """
 import threading
-from datetime import datetime
+
+from app.utils import utcnow
 
 # ---------------------------------------------------------------------------
 # Thread-safe progress store for the full audit run
@@ -94,7 +95,7 @@ def _record_auth_failure(category, exc):
             report_type=category,
             status="failed",
             error=str(exc),
-            completed_at=datetime.utcnow(),
+            completed_at=utcnow(),
         )
         db.session.add(report)
         db.session.commit()
@@ -141,13 +142,13 @@ def run_category(category: str, app_context):
 
             report.status = "complete"
             report.score = score
-            report.completed_at = datetime.utcnow()
+            report.completed_at = utcnow()
             db.session.commit()
 
         except Exception as e:
             report.status = "failed"
             report.error = str(e)
-            report.completed_at = datetime.utcnow()
+            report.completed_at = utcnow()
             db.session.commit()
 
         return report_id
@@ -200,7 +201,7 @@ def run_full(app_context):
 
                 cat_report.status = "complete"
                 cat_report.score = cat_score
-                cat_report.completed_at = datetime.utcnow()
+                cat_report.completed_at = utcnow()
                 db.session.commit()
 
                 all_results.extend(r for r in results if isinstance(r, dict))
@@ -218,13 +219,13 @@ def run_full(app_context):
 
             report.status = "complete"
             report.score = score_data["overall"]
-            report.completed_at = datetime.utcnow()
+            report.completed_at = utcnow()
             db.session.commit()
 
         except Exception as e:
             report.status = "failed"
             report.error = str(e)
-            report.completed_at = datetime.utcnow()
+            report.completed_at = utcnow()
             db.session.commit()
 
         finally:
