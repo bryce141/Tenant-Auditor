@@ -45,16 +45,41 @@ Built as a portfolio project to demonstrate real-world API integration, security
 
 - Python 3.10+
 - Microsoft 365 tenant (dev tenant works)
-- Azure App Registration with the following **Application** permissions (admin consent required):
-  - `User.Read.All`
-  - `Policy.Read.All`
-  - `UserAuthenticationMethod.Read.All`
-  - `AuditLog.Read.All`
-  - `Directory.Read.All`
-  - `IdentityRiskyUser.Read.All`
-  - `MailboxSettings.Read`
-  - `RoleManagement.Read.All`
-  - `Application.Read.All`
+- Azure App Registration with the **Application** permissions below
+
+### Graph API permissions
+
+All are **Application** permissions and all require **admin consent** — they do
+nothing until consent is granted, even after they're added.
+
+| Permission | Needed for |
+|---|---|
+| `User.Read.All` | User enumeration — underpins MFA, password policy, guests, forwarding |
+| `AuditLog.Read.All` | `signInActivity` field — stale accounts, user activity |
+| `UserAuthenticationMethod.Read.All` | MFA registration |
+| `MailboxSettings.Read` | Mailbox forwarding |
+| `Directory.Read.All` | Directory roles, group lifecycle policy |
+| `RoleManagement.Read.Directory` | PIM / standing role assignments |
+| `Policy.Read.All` | Conditional access, named locations, SSPR |
+| `IdentityRiskyUser.Read.All` | Risky users — requires Entra ID **P2** |
+| `SecurityEvents.Read.All` | Microsoft Secure Score |
+| `Application.Read.All` | App registration credentials and permissions |
+| `Domain.Read.All` | SPF / DKIM / DMARC email authentication |
+| `Organization.Read.All` | License SKU summary |
+| `Group.Read.All` | Groups, owners, distribution lists |
+| `Reports.Read.All` | Mailbox, SharePoint, OneDrive, and M365 app usage reports |
+| `SharePointTenantSettings.Read.All` | SharePoint external sharing settings |
+
+To verify what's actually granted, run:
+
+```bash
+python scripts/check_permissions.py           # granted vs. required
+python scripts/check_permissions.py --probe   # also call each endpoint live
+```
+
+`--probe` is the one to reach for when a check is silently skipping — it reports
+the real HTTP status per endpoint, which tells a missing permission (403) apart
+from a workload that isn't provisioned in the tenant (404).
 
 ---
 
