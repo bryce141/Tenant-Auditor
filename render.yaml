@@ -3,10 +3,17 @@ services:
     name: tenant-auditor
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2
+    startCommand: gunicorn run:app --bind 0.0.0.0:$PORT --workers 2
     envVars:
       - key: DATA_DIR
         value: /var/data
+      # Keep the database on the persistent disk. Without this the default
+      # relative URI resolves into Flask's instance folder, which is ephemeral,
+      # and every redeploy silently starts the audit history over.
+      - key: DATABASE_URL
+        value: sqlite:////var/data/tenant_auditor.db
+      - key: SECRET_KEY
+        generateValue: true
     disk:
       name: tenant-data
       mountPath: /var/data

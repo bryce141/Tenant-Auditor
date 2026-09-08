@@ -1,43 +1,66 @@
 # Tenant Security Auditor
 
-A Python tool that connects to the **Microsoft Graph API** to audit an Entra ID (Azure AD) tenant's security posture, score it against **CIS Microsoft 365 Foundations Benchmark** controls, and generate a visual report.
+A Flask application that connects to the **Microsoft Graph API** to audit an
+Entra ID (Azure AD) tenant, score it against **CIS Microsoft 365 Foundations
+Benchmark** controls, and track posture over time.
 
-Built as a portfolio project to demonstrate real-world API integration, security engineering, and full-stack tooling.
+Built as a portfolio project to demonstrate real-world API integration, security
+engineering, and full-stack tooling.
 
 <img width="1879" height="907" alt="image" src="https://github.com/user-attachments/assets/c67ca20c-df77-4f2a-8e28-bd5c39a355e5" />
-
-
 
 ---
 
 ## Features
 
-- **10 security checks** across identity, access, and mail
-- **Scored 0–100** against CIS benchmark controls
-- **Web dashboard** with score trend history (Flask)
-- **HTML report** export
-- **CLI interface** with flags
+- **27 checks** across 8 categories — identity, conditional access, mail
+  security, licensing, users, SharePoint, Exchange, and groups
+- **Weighted 0–100 score** over 110 points of CIS-mapped security controls
+- **Web dashboard** with score trend history and cross-category alerts
+- **Per-category runs** or a full audit with live progress
+- **Every run persisted** to SQLite, so history survives restarts
+- **CSV export** per report
+- **Credentials configured in the UI** — no redeploy to point at a new tenant
 
 ---
 
 ## Checks Performed
 
-| Check | CIS Control | Description |
-|---|---|---|
-| MFA Registration | CIS 1.1.1 | Detects users with no MFA method registered |
-| Conditional Access | CIS 1.1.2 | Flags tenants with no CA policies configured |
-| Named Locations | CIS 1.1.3 | Checks if trusted network locations are defined |
-| Legacy Auth Blocked | CIS 1.1.4 | Checks if legacy auth protocols are blocked |
-| SSPR | CIS 1.1.5 | Verifies Self-Service Password Reset is enabled |
-| Admin Role Hygiene | CIS 1.2.1 | Reviews privileged role assignments, role stacking, and guests with roles |
-| PIM / Standing Roles | CIS 1.2.3 | Flags permanent privileged assignments with no PIM gating |
-| App Credential Expiry | CIS 1.3.1 | Detects expired or soon-expiring app secrets and SSO certs |
-| App Permissions | CIS 1.3.2 | Flags app registrations with overly broad API permissions |
-| Password Policy | CIS 2.1.1 | Checks for accounts with non-expiring passwords |
-| Mailbox Forwarding | CIS 6.1.1 | Detects external mail forwarding rules |
-| Stale Accounts | — | Flags accounts with no sign-in in 90+ days (requires P1/P2) |
-| Risky Users | — | Surfaces Entra ID Identity Protection findings (requires P2) |
-| Guest Users | — | Enumerates external guest accounts |
+### Scored — security posture (110 pts)
+
+| Check | CIS Control | Weight | Description |
+|---|---|---|---|
+| MFA Registration | CIS 1.1.1 | 20 | Users with no non-password auth method registered |
+| Conditional Access Policies | CIS 1.1.2 | 15 | CA policies present, enabled, and not stuck in report-only |
+| Legacy Auth Blocked | CIS 1.1.4 | 10 | A policy actually blocks legacy authentication |
+| Admin Role Hygiene | CIS 1.2.1 | 10 | Privileged role counts, role stacking, guests holding roles |
+| PIM / Standing Roles | CIS 1.2.3 | 10 | Permanent privileged assignments with no PIM gating |
+| Email Authentication | CIS 6.2.2 | 10 | SPF (3) + DMARC (4) + DKIM (3) per verified domain, via live DNS |
+| Mailbox Forwarding | CIS 6.1.1 | 8 | External auto-forwarding on any mailbox |
+| App Credential Expiry | CIS 1.3.1 | 8 | Expired or soon-expiring app secrets and SSO certificates |
+| App Permissions | CIS 1.3.2 | 5 | App registrations holding overly broad Graph permissions |
+| Password Policy | CIS 2.1.1 | 5 | Accounts with passwords set to never expire |
+| SSPR Enabled | CIS 1.1.5 | 5 | Self-Service Password Reset is turned on |
+| Named Locations | CIS 1.1.3 | 4 | Trusted network locations are defined |
+
+### Informational — inventory and hygiene
+
+| Category | Checks |
+|---|---|
+| Identity | Stale Accounts (90+ days), Guest Users, Risky Users, Microsoft Secure Score |
+| Licensing | License Summary, Per-User Licenses |
+| Users | User Sign-in Activity, M365 App Usage |
+| SharePoint | Site Usage, External Sharing Policy, OneDrive Usage |
+| Exchange | Mailbox Sizes, Shared Mailboxes, Distribution Lists |
+| Groups | Group Inventory, Group Expiration Policy |
+
+### How scoring works
+
+Each scored check returns `points_earned` out of `points_possible`; the overall
+score is `earned / possible * 100` across the three security categories. Checks
+that can't run — missing permission, absent license, workload not provisioned —
+return a `skip` status and are excluded from the denominator rather than counted
+as failures. A tenant is never penalised for a check that couldn't execute.
 
 ---
 
@@ -91,46 +114,61 @@ git clone https://github.com/bryce141/Tenant-Auditor.git
 cd Tenant-Auditor
 ```
 
-**2. Install dependencies**
+**2. Create a virtualenv and install dependencies**
 ```bash
+python -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-**3. Configure credentials**
-
-Create a `.env` file in the project root:
-```env
-TENANT_ID=your-tenant-id
-CLIENT_ID=your-client-id
-CLIENT_SECRET=your-client-secret
+**3. Run it**
+```bash
+python run.py
 ```
 
-> The `.env` file is gitignored and never committed.
+Open [http://localhost:5000](http://localhost:5000) and enter your tenant ID,
+client ID, and client secret on the setup screen. **Test Connection** validates
+them against Entra ID before saving.
+
+Credentials are written to `config.json` (gitignored). If you'd rather supply
+them out-of-band, set `TENANT_ID`, `CLIENT_ID`, and `CLIENT_SECRET` in a `.env`
+file instead — `config.json` takes precedence when both are present.
+
+> Neither `.env` nor `config.json` is ever committed.
 
 ---
 
 ## Usage
 
-**Run a CLI audit:**
-```bash
-python main.py
+Once credentials are saved:
+
+- **Dashboard** (`/dashboard`) — overall score, per-category tiles, alerts, and
+  score history. **Run Full Audit** executes all 8 categories in the background
+  with a live progress overlay.
+- **Security** (`/security`) — the scored checks in detail, with CIS references
+  and per-check issue lists. Categories can be re-run individually.
+- **Licensing / Users / SharePoint / Exchange / Groups** — inventory views, each
+  independently runnable.
+- **Reports** (`/reports`) — every run, with CSV export and delete.
+- **Settings** (`/settings`) — update or re-test tenant credentials.
+
+Runs execute in a background thread, so the UI stays responsive; the relevant
+page polls its `api/status` endpoint until the run completes.
+
+---
+
+## Deployment
+
+`render.yaml` provisions the app on [Render](https://render.com) with a 1 GB
+persistent disk mounted at `/var/data`. Both `config.json` and the SQLite
+database live there so credentials and audit history survive redeploys.
+
+```yaml
+startCommand: gunicorn run:app --bind 0.0.0.0:$PORT --workers 2
 ```
 
-**Specify output file:**
-```bash
-python main.py --output my-report.html
-```
-
-**Skip HTML generation:**
-```bash
-python main.py --no-html
-```
-
-**Run the web dashboard:**
-```bash
-python app.py
-```
-Then open [http://localhost:5000](http://localhost:5000)
+Set `SECRET_KEY` in the Render dashboard. Tenant credentials are entered through
+the UI rather than baked into the environment.
 
 ---
 
@@ -138,44 +176,56 @@ Then open [http://localhost:5000](http://localhost:5000)
 
 ```
 tenant-auditor/
-├── app.py                  # Flask web dashboard
-├── main.py                 # CLI entry point
+├── run.py                        # entry point — creates the Flask app
 ├── requirements.txt
-├── auditor/
-│   ├── auth.py             # MSAL token acquisition
-│   ├── scorer.py           # Weighted scoring engine
-│   ├── reporter.py         # HTML report generator
-│   ├── cis_mapping.py      # CIS benchmark references
-│   └── checks/
-│       ├── mfa.py
-│       ├── conditional_access.py
-│       ├── stale_accounts.py
-│       ├── risky_users.py
-│       ├── mailbox_forwarding.py
-│       ├── admin_roles.py
-│       ├── guest_users.py
-│       ├── legacy_auth.py
-│       ├── password_policy.py
-│       ├── sspr.py
-│       ├── pim_roles.py
-│       ├── app_registrations.py
-│       └── named_locations.py
+├── render.yaml                   # Render deploy config
+├── scripts/
+│   └── check_permissions.py      # Graph permission diagnostic
+└── app/
+    ├── __init__.py               # app factory, blueprint registration
+    ├── config.py
+    ├── auth/
+    │   └── graph_auth.py         # MSAL token acquisition, credential storage
+    ├── models/
+    │   └── report.py             # Report + ReportCheck (SQLAlchemy)
+    ├── services/
+    │   ├── graph_client.py       # paginated Graph wrapper (JSON + CSV reports)
+    │   ├── report_runner.py      # orchestration, background runs, progress
+    │   └── scoring.py            # weights and CIS mapping
+    ├── checks/                   # one module per category, each exposing run_all()
+    │   ├── identity.py
+    │   ├── conditional_access.py
+    │   ├── mail_security.py
+    │   ├── licensing.py
+    │   ├── users.py
+    │   ├── sharepoint.py
+    │   ├── exchange.py
+    │   └── groups.py
+    ├── routes/                   # one blueprint per section
+    └── templates/
 ```
+
+Adding a category is: a module in `checks/` exposing `run_all(client)`, an entry
+in `CATEGORY_MAP` in `report_runner.py`, and a blueprint in `routes/`.
 
 ---
 
 ## Tech Stack
 
 - **Python** — core logic and API integration
-- **Microsoft Graph API** — tenant data source
-- **MSAL** — Azure AD authentication (client credentials flow)
-- **Flask** — web dashboard
-- **Chart.js** — score trend visualization
+- **Microsoft Graph API** — tenant data source (v1.0, with beta for SharePoint settings)
+- **MSAL** — Entra ID authentication (client credentials flow)
+- **Flask** + **Flask-SQLAlchemy** — web app and persistence
+- **SQLite** — report storage
+- **dnspython** — live SPF/DKIM/DMARC record lookups
+- **Tailwind** + **Chart.js** — UI and score trend visualization
 
 ---
 
 ## Notes
 
-- Checks requiring **Entra ID P1/P2** (stale accounts, risky users) grfully degrade on free/developer tenants
-- All credentials are loaded from environment variables — never hardcoded
-- Each audit run is saved to `runs/` as JSON for historical tracking
+- Checks requiring **Entra ID P1/P2** (stale accounts, risky users) degrade
+  gracefully on free and developer tenants — they skip rather than fail
+- Credentials are never hardcoded; `config.json` and `.env` are both gitignored
+- `secureScores` reflects Microsoft's own scoring and is surfaced alongside the
+  CIS score rather than folded into it — the two measure different things
