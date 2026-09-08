@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, current_app, jsonify
 from app.auth.graph_auth import get_active_tenant, has_credentials
 from app.models.report import Report
+from app.services.formatting import distinct_history
 from app.services.report_runner import (start_category_run, get_latest_report,
                                          get_running_report, SECURITY_CATEGORIES)
 
@@ -27,9 +28,11 @@ def index():
                                     Report.status == "complete", Report.score != None)
     if scope:
         history_q = history_q.filter(Report.tenant_id == scope)
-    score_history = history_q.order_by(Report.created_at.asc()).limit(20).all()
-    history = [{"date": r.created_at.strftime("%b %d"), "score": r.score, "type": r.report_type}
+    score_history = distinct_history(history_q.order_by(Report.created_at.asc()).limit(60).all())
+    history = [{"date": r.created_at.strftime("%-d %b"), "score": r.score, "type": r.report_type}
                for r in score_history]
+    if len(history) < 2:
+        history = []  # a single point is not a trend
 
     # Extract MS Secure Score check for dedicated display
     secure_score_check = None

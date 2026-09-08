@@ -43,8 +43,8 @@
         </div>
         <p class="text-xs text-slate-600 mt-1">out of 100</p>
       {% else %}
-        <p class="text-3xl font-bold text-slate-700">—</p>
-        <p class="text-xs text-slate-600 mt-2">Run Security report</p>
+        <p class="text-sm text-slate-600 mt-3">Not run yet</p>
+        <p class="text-xs text-blue-500/70 mt-1">Run security report →</p>
       {% endif %}
       {% if secure_score_check and secure_score_check.status != 'skip' and secure_score_check.details %}
         {% set ss = secure_score_check.details %}
@@ -83,8 +83,8 @@
           {{ stale }} stale (90d+)
         </p>
       {% else %}
-        <p class="text-3xl font-bold text-slate-700">—</p>
-        <p class="text-xs text-slate-600 mt-2">Run Users report</p>
+        <p class="text-sm text-slate-600 mt-3">Not run yet</p>
+        <p class="text-xs text-blue-500/70 mt-1">Run users report →</p>
       {% endif %}
     </a>
 
@@ -109,8 +109,8 @@
           {{ lic_check.details.total_available }} unassigned
         </p>
       {% else %}
-        <p class="text-3xl font-bold text-slate-700">—</p>
-        <p class="text-xs text-slate-600 mt-2">Run Licensing report</p>
+        <p class="text-sm text-slate-600 mt-3">Not run yet</p>
+        <p class="text-xs text-blue-500/70 mt-1">Run licensing report →</p>
       {% endif %}
     </a>
 
@@ -133,8 +133,8 @@
         <p class="text-4xl font-bold text-slate-100">{{ sp_check.details.total_sites }}</p>
         <p class="text-xs text-slate-500 mt-2">{{ sp_check.details.total_storage_gb }} GB used</p>
       {% else %}
-        <p class="text-3xl font-bold text-slate-700">—</p>
-        <p class="text-xs text-slate-600 mt-2">Run SharePoint report</p>
+        <p class="text-sm text-slate-600 mt-3">Not run yet</p>
+        <p class="text-xs text-blue-500/70 mt-1">Run sharepoint report →</p>
       {% endif %}
     </a>
   </div>
@@ -163,8 +163,8 @@
           {{ mb_check.details.near_quota | length }} near quota
         </p>
       {% else %}
-        <p class="text-3xl font-bold text-slate-700">—</p>
-        <p class="text-xs text-slate-600 mt-2">Run Exchange report</p>
+        <p class="text-sm text-slate-600 mt-3">Not run yet</p>
+        <p class="text-xs text-blue-500/70 mt-1">Run exchange report →</p>
       {% endif %}
     </a>
 
@@ -189,8 +189,8 @@
           {{ grp_check.details.ownerless | length }} ownerless
         </p>
       {% else %}
-        <p class="text-3xl font-bold text-slate-700">—</p>
-        <p class="text-xs text-slate-600 mt-2">Run Groups report</p>
+        <p class="text-sm text-slate-600 mt-3">Not run yet</p>
+        <p class="text-xs text-blue-500/70 mt-1">Run groups report →</p>
       {% endif %}
     </a>
 
@@ -229,12 +229,17 @@
   </div>
 
   <!-- Score Chart + Recent Reports -->
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  {# items-start stops the chart card stretching to the height of the reports
+     column beside it, which left a large empty area under the canvas. #}
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
 
     <!-- Score Chart -->
     {% if history %}
     <div class="lg:col-span-2 card p-5">
-      <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-5">Security Score History</p>
+      <div class="flex items-baseline justify-between mb-5">
+        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Security Score History</p>
+        <p class="text-xs text-slate-600">{{ history | length }} audits</p>
+      </div>
       <canvas id="scoreChart" height="90"></canvas>
     </div>
     {% endif %}
@@ -250,15 +255,13 @@
         {% for r in recent %}
         <div class="px-5 py-3 flex items-center justify-between hover:bg-slate-700/20 transition-colors">
           <div class="flex items-center gap-3">
-            <span class="text-xs font-semibold px-2 py-0.5 {{ 'badge-pass' if r.status == 'complete' else ('badge-fail' if r.status == 'failed' else 'badge-info') }}">
-              {{ r.report_type }}
+            <span class="text-xs font-medium px-2 py-0.5 rounded border {{ r.report_type | type_accent }}">
+              {{ r.report_type | report_type }}
             </span>
-            <span class="text-xs text-slate-500">{{ r.created_at.strftime('%b %d %H:%M') }}</span>
+            <span class="text-xs text-slate-500" title="{{ r.created_at | short_datetime }}">{{ r.created_at | relative_time }}</span>
           </div>
           {% if r.score is not none %}
-          <span class="text-sm font-bold {{ 'text-emerald-400' if r.score >= 80 else ('text-amber-400' if r.score >= 50 else 'text-red-400') }}">
-            {{ r.score }}/100
-          </span>
+          <span class="text-sm font-semibold tabular-nums {{ r.score | score_tone }}">{{ r.score }}<span class="text-slate-600 text-xs font-normal">/100</span></span>
           {% endif %}
         </div>
         {% endfor %}

@@ -12,9 +12,10 @@ def create_app():
 
     # Check guidance is shared by every template (and, later, report exports),
     # so it lives on the Jinja environment rather than being passed per-route.
-    from app.services import remediation
+    from app.services import formatting, remediation
     app.jinja_env.globals["CHECK_GUIDANCE"] = remediation.GUIDANCE
     app.jinja_env.globals["severity_of"] = remediation.severity_of
+    formatting.register(app)
 
     # The tenant switcher lives in base.html, so every view needs these without
     # each route having to pass them. Failures are swallowed: the switcher is

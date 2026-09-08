@@ -9,7 +9,7 @@
       <p class="text-sm text-slate-500 mt-0.5">Site usage, storage, sharing policies, and OneDrive activity</p>
     </div>
     <div class="flex items-center gap-3">
-      {% if report %}<span class="text-xs text-slate-500">Last run {{ report.created_at.strftime('%b %d %H:%M') }}</span>{% endif %}
+      {% if report %}<span class="text-xs text-slate-500" title="{{ report.created_at | short_datetime }}">Last run {{ report.created_at | relative_time }}</span>{% endif %}
       <button id="run-btn" onclick="runReport('/sharepoint/api/run', 'run-btn', '/sharepoint/api/status')"
               class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors">
         {{ 'Running…' if running else 'Run Report' }}

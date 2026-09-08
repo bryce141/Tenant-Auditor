@@ -32,25 +32,30 @@
         <tbody class="divide-y divide-slate-700/30">
           {% for r in reports %}
           <tr class="hover:bg-slate-700/20">
+            {# Type badge is accented by category, not by run status — status has
+               its own column, and colouring both said the same thing twice. #}
             <td class="px-5 py-3">
-              <span class="text-xs font-semibold px-2 py-0.5 rounded border
-                {{ 'badge-pass' if r.status == 'complete' else ('badge-fail' if r.status == 'failed' else 'badge-info') }}">
-                {{ r.report_type }}
+              <span class="text-xs font-medium px-2 py-0.5 rounded border {{ r.report_type | type_accent }}">
+                {{ r.report_type | report_type }}
               </span>
             </td>
-            <td class="px-5 py-3 text-slate-400 text-xs">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="px-5 py-3 text-slate-400 text-xs" title="{{ r.created_at | short_datetime }}">
+              {{ r.created_at | relative_time }}
+            </td>
             <td class="px-5 py-3">
-              <span class="text-xs {{ 'text-emerald-400' if r.status == 'complete' else ('text-red-400' if r.status == 'failed' else 'text-blue-400') }}">
-                {{ r.status }}
-              </span>
-              {% if r.error %}<p class="text-xs text-red-500 mt-0.5 truncate max-w-xs">{{ r.error }}</p>{% endif %}
+              {% if r.status == 'complete' %}
+                <span class="text-xs text-slate-500">Complete</span>
+              {% elif r.status == 'failed' %}
+                <span class="text-xs text-red-400 font-medium">Failed</span>
+              {% else %}
+                <span class="text-xs text-blue-400">Running</span>
+              {% endif %}
+              {% if r.error %}<p class="text-xs text-red-500/80 mt-0.5 truncate max-w-xs" title="{{ r.error }}">{{ r.error }}</p>{% endif %}
             </td>
             <td class="px-5 py-3 text-right">
               {% if r.score is not none %}
-              <span class="font-bold text-sm {{ 'text-emerald-400' if r.score >= 80 else ('text-amber-400' if r.score >= 50 else 'text-red-400') }}">
-                {{ r.score }}/100
-              </span>
-              {% else %}—{% endif %}
+              <span class="font-semibold text-sm tabular-nums {{ r.score | score_tone }}">{{ r.score }}</span><span class="text-slate-600 text-xs">/100</span>
+              {% else %}<span class="text-slate-700">—</span>{% endif %}
             </td>
             <td class="px-5 py-3 text-right text-slate-400 text-xs">{{ r.checks | length }}</td>
             <td class="px-5 py-3 text-right">

@@ -143,7 +143,7 @@
       </div>
       <div class="flex items-center gap-3">
         {% if cat_report %}
-          <span class="text-xs text-slate-600">{{ cat_report.created_at.strftime('%b %d %H:%M') }}</span>
+          <span class="text-xs text-slate-600" title="{{ cat_report.created_at | short_datetime }}">{{ cat_report.created_at | relative_time }}</span>
         {% endif %}
         <button onclick="runReport('/security/api/run/{{ cat_key }}', 'run-{{ cat_key }}', '/security/api/status/{{ cat_key }}')"
                 id="run-{{ cat_key }}"
@@ -188,16 +188,16 @@
               <p class="text-xs text-slate-500 mt-0.5">{{ check.summary }}</p>
             </div>
           </div>
+          {# The dot on the left already encodes status, so the right side shows
+             points — the thing the dot can't say — and stays quiet otherwise. #}
           <div class="flex items-center gap-3 shrink-0">
-            {% if check.points_earned is not none %}
-              <span class="text-xs text-slate-600">{{ check.points_earned }}/{{ check.points_possible }}pts</span>
+            {% if check.points_possible %}
+              <span class="text-xs tabular-nums {{ 'text-slate-600' if check.status == 'pass' else 'text-slate-400' }}">
+                <span class="font-semibold">{{ check.points_earned if check.points_earned is not none else '–' }}</span><span class="text-slate-700">/{{ check.points_possible }}</span>
+              </span>
+            {% elif check.status == 'skip' %}
+              <span class="text-xs text-slate-700">not measured</span>
             {% endif %}
-            <span class="text-xs px-2 py-0.5 rounded font-semibold
-              {{ 'badge-pass' if check.status == 'pass'
-                 else ('badge-warn' if check.status == 'warn'
-                 else ('badge-fail' if check.status == 'fail' else 'badge-skip')) }}">
-              {{ check.status }}
-            </span>
           </div>
         </div>
         {% if check.issues %}

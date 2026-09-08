@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, current_app, jsonify
 from app.auth.graph_auth import get_active_tenant, has_credentials
 from app.models.report import Report, ReportCheck
+from app.services.formatting import distinct_history
 from app.services.report_runner import start_full_run, get_latest_report, get_run_progress
 
 bp = Blueprint("dashboard", __name__, url_prefix="/dashboard")
@@ -39,8 +40,12 @@ def index():
                                     Report.status == "complete", Report.score != None)
     if scope:
         history_q = history_q.filter(Report.tenant_id == scope)
-    history_reports = history_q.order_by(Report.created_at.asc()).limit(20).all()
-    history = [{"date": r.created_at.strftime("%b %d"), "score": r.score} for r in history_reports]
+    # One point per day: a full audit writes several reports seconds apart,
+    # which otherwise draws a flat line against a repeated axis label.
+    history_reports = distinct_history(history_q.order_by(Report.created_at.asc()).limit(60).all())
+    history = [{"date": r.created_at.strftime("%-d %b"), "score": r.score} for r in history_reports]
+    if len(history) < 2:
+        history = []  # a single point is not a trend
 
     # Recent reports (any type, last 10)
     recent_q = Report.query.filter_by(status="complete")
