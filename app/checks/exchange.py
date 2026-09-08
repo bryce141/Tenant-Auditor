@@ -4,17 +4,15 @@ Exchange Online checks:
   - Shared mailboxes (info)
   - Distribution lists (info)
 """
-from app.services.graph_client import GraphClient
+from app.checks.base import check
+from app.services.graph_client import GraphClient, GraphError
 
 QUOTA_WARN_PCT = 80
 
 
+@check("mailbox_usage", "Mailbox Sizes", "exchange", empty_details={})
 def check_mailbox_usage(client: GraphClient):
     rows = client.get_report_csv("/reports/getMailboxUsageDetail(period='D30')")
-    if isinstance(rows, dict):
-        return {"check_name": "mailbox_usage", "display_name": "Mailbox Sizes",
-                "category": "exchange", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": rows["error"], "issues": [], "details": {}, "cis_reference": None}
 
     mailboxes = []
     near_quota = []
@@ -63,14 +61,11 @@ def check_mailbox_usage(client: GraphClient):
     }
 
 
+@check("shared_mailboxes", "Shared Mailboxes", "exchange")
 def check_shared_mailboxes(client: GraphClient):
     # Shared mailboxes show as users with no license and a specific mailbox type
     # Graph doesn't directly expose mailbox type, but we can use the Exchange recipient type via beta
     users = client.get_all("/users?$select=id,displayName,userPrincipalName,mail,assignedLicenses&$filter=userType eq 'Member'", beta=False)
-    if isinstance(users, dict):
-        return {"check_name": "shared_mailboxes", "display_name": "Shared Mailboxes",
-                "category": "exchange", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": users["error"], "issues": [], "details": [], "cis_reference": None}
 
     # Heuristic: users with no license assigned but a mail address are likely shared mailboxes
     shared = [u for u in users if u.get("mail") and not u.get("assignedLicenses")]
@@ -86,14 +81,11 @@ def check_shared_mailboxes(client: GraphClient):
     }
 
 
+@check("distribution_lists", "Distribution Lists", "exchange")
 def check_distribution_lists(client: GraphClient):
     groups = client.get_all(
         "/groups?$select=id,displayName,mail,groupTypes,mailEnabled,securityEnabled,members&$filter=mailEnabled eq true"
     )
-    if isinstance(groups, dict):
-        return {"check_name": "distribution_lists", "display_name": "Distribution Lists",
-                "category": "exchange", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": groups["error"], "issues": [], "details": [], "cis_reference": None}
 
     # Distribution lists: mailEnabled=true, securityEnabled=false, not a unified group
     dls = [g for g in groups if g.get("mailEnabled") and not g.get("securityEnabled")
@@ -101,8 +93,10 @@ def check_distribution_lists(client: GraphClient):
 
     details = []
     for g in dls:
-        members = client.get_all(f"/groups/{g['id']}/members?$select=id")
-        member_count = len(members) if not isinstance(members, dict) else 0
+        try:
+            member_count = len(client.get_all(f"/groups/{g['id']}/members?$select=id"))
+        except GraphError:
+            member_count = 0
         details.append({
             "display_name": g.get("displayName"),
             "mail": g.get("mail"),

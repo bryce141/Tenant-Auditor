@@ -7,6 +7,7 @@ with the tenant shapes that used to divide by zero.
 import pytest
 
 from app.checks.identity import check_mfa
+from app.services.graph_client import GraphError
 
 REPORT = "/reports/authenticationMethods/userRegistrationDetails"
 
@@ -26,6 +27,9 @@ class FakeClient:
         self.calls.append(endpoint)
         for prefix, value in self.responses.items():
             if endpoint.startswith(prefix):
+                # A canned exception means "this Graph call fails".
+                if isinstance(value, Exception):
+                    raise value
                 return value
         raise AssertionError(f"unexpected endpoint: {endpoint}")
 
@@ -74,7 +78,7 @@ def test_warns_rather_than_fails_below_25_percent():
 
 def test_falls_back_to_per_user_when_report_unavailable():
     client = FakeClient({
-        REPORT: {"error": "Insufficient permissions"},
+        REPORT: GraphError("Insufficient permissions", status=403),
         "/users?": [
             {"id": "1", "displayName": "A", "userPrincipalName": "a@x.com"},
             {"id": "2", "displayName": "B", "userPrincipalName": "b@x.com"},
@@ -99,8 +103,8 @@ def test_falls_back_to_per_user_when_report_unavailable():
 
 def test_skips_when_user_listing_also_fails():
     client = FakeClient({
-        REPORT: {"error": "Insufficient permissions"},
-        "/users?": {"error": "Insufficient permissions (/users)"},
+        REPORT: GraphError("Insufficient permissions", status=403),
+        "/users?": GraphError("Insufficient permissions (/users)", status=403),
     })
 
     result = check_mfa(client)
@@ -122,7 +126,7 @@ def test_empty_tenant_skips_instead_of_dividing_by_zero():
 def test_unreadable_users_excluded_from_ratio_not_counted_as_failures():
     """A user whose methods can't be read is unknown, not non-compliant."""
     client = FakeClient({
-        REPORT: {"error": "nope"},
+        REPORT: GraphError("nope", status=403),
         "/users?": [
             {"id": "1", "displayName": "A", "userPrincipalName": "a@x.com"},
             {"id": "2", "displayName": "B", "userPrincipalName": "b@x.com"},
@@ -130,7 +134,7 @@ def test_unreadable_users_excluded_from_ratio_not_counted_as_failures():
         "/users/1/authentication/methods": [
             {"@odata.type": "#microsoft.graph.phoneAuthenticationMethod"},
         ],
-        "/users/2/authentication/methods": {"error": "403"},
+        "/users/2/authentication/methods": GraphError("403", status=403),
     })
 
     result = check_mfa(client)

@@ -34,34 +34,46 @@ class GraphClient:
             return endpoint
         return f"{base}{endpoint}"
 
+    def _raise_for(self, resp, endpoint):
+        """Translate an unsuccessful response into GraphError."""
+        if resp.status_code == 403:
+            raise GraphError(f"Insufficient permissions ({endpoint})",
+                             status=403, endpoint=endpoint)
+        if resp.status_code == 404:
+            raise GraphError(f"Resource not found ({endpoint})",
+                             status=404, endpoint=endpoint)
+        if resp.status_code == 429:
+            raise GraphError(f"Throttled by Graph ({endpoint})",
+                             status=429, endpoint=endpoint)
+        raise GraphError(f"HTTP {resp.status_code} for {endpoint}",
+                         status=resp.status_code, endpoint=endpoint)
+
     def get_all(self, endpoint, params=None, beta=False):
-        """Fetch all pages of a paginated collection. Returns list or error dict."""
+        """Fetch every page of a paginated collection. Raises GraphError."""
         url = self._url(endpoint, beta)
         results = []
         while url:
             resp = requests.get(url, headers=self.headers, params=params)
-            if resp.status_code == 403:
-                return {"error": f"Insufficient permissions ({endpoint})"}
-            if resp.status_code == 404:
-                return {"error": f"Resource not found ({endpoint})"}
             if not resp.ok:
-                return {"error": f"HTTP {resp.status_code} for {endpoint}"}
+                self._raise_for(resp, endpoint)
             data = resp.json()
             results.extend(data.get("value", []))
             url = data.get("@odata.nextLink")
-            params = None  # only apply params on first request
+            params = None  # only apply params on the first request
         return results
 
     def get_one(self, endpoint, params=None, beta=False):
-        """Fetch a single JSON object. Returns dict or None."""
+        """Fetch a single JSON object.
+
+        A 404 returns None rather than raising: for singleton settings
+        resources, absent is a legitimate answer the caller interprets.
+        """
         url = self._url(endpoint, beta)
         resp = requests.get(url, headers=self.headers, params=params)
-        if resp.status_code == 403:
-            return {"error": f"Insufficient permissions ({endpoint})"}
         if resp.status_code == 404:
             return None
         if not resp.ok:
-            return {"error": f"HTTP {resp.status_code}"}
+            self._raise_for(resp, endpoint)
         return resp.json()
 
     def get_count(self, endpoint):
@@ -115,16 +127,27 @@ class GraphClient:
         return results
 
     def get_report_csv(self, endpoint):
-        """Fetch a Graph usage report (CSV). Returns list of row dicts or error dict."""
+        """Fetch a Graph usage report as a list of row dicts. Raises GraphError.
+
+        These endpoints answer 302 to a short-lived pre-authenticated download
+        URL on another host; requests drops the Authorization header across that
+        redirect, which is both expected and required — the download URL rejects
+        it. A 404 here usually means the workload isn't provisioned in the
+        tenant rather than a bad path.
+        """
         url = self._url(endpoint)
         resp = requests.get(url, headers=self.headers, allow_redirects=True)
         if resp.status_code == 403:
-            return {"error": "Reports.Read.All permission required"}
+            raise GraphError(f"Reports.Read.All permission required ({endpoint})",
+                             status=403, endpoint=endpoint)
+        if resp.status_code == 404:
+            raise GraphError(
+                f"Report unavailable — workload may not be provisioned ({endpoint})",
+                status=404, endpoint=endpoint)
         if not resp.ok:
-            return {"error": f"HTTP {resp.status_code}"}
+            self._raise_for(resp, endpoint)
         try:
             content = resp.content.decode("utf-8-sig")
-            reader = csv.DictReader(io.StringIO(content))
-            return list(reader)
+            return list(csv.DictReader(io.StringIO(content)))
         except Exception as e:
-            return {"error": f"Failed to parse report CSV: {e}"}
+            raise GraphError(f"Failed to parse report CSV: {e}", endpoint=endpoint)

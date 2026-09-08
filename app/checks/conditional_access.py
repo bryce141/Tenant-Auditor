@@ -4,18 +4,18 @@ Conditional Access checks:
   - Legacy Auth Blocked  (10 pts)
   - Named Locations      (4 pts)
 """
+from app.checks.base import check
 from app.services.graph_client import GraphClient
 from app.services.scoring import CIS_MAP
 
 LEGACY_CLIENT_TYPES = {"exchangeActiveSync", "other"}
 
 
+@check("conditional_access", "Conditional Access Policies", "conditional_access",
+       points_possible=15, cis_reference=CIS_MAP["conditional_access"]["id"],
+       empty_details={})
 def check_conditional_access(client: GraphClient):
     policies = client.get_all("/identity/conditionalAccess/policies")
-    if isinstance(policies, dict):
-        return {"check_name": "conditional_access", "display_name": "Conditional Access Policies",
-                "category": "conditional_access", "status": "skip", "points_earned": None, "points_possible": 15,
-                "summary": policies["error"], "issues": [], "details": {}, "cis_reference": CIS_MAP["conditional_access"]["id"]}
 
     results = [{"name": p.get("displayName"), "state": p.get("state"), "id": p.get("id")} for p in policies]
     enabled = sum(1 for p in results if p["state"] == "enabled")
@@ -41,12 +41,11 @@ def check_conditional_access(client: GraphClient):
     }
 
 
+@check("legacy_auth_blocked", "Legacy Auth Blocked", "conditional_access",
+       points_possible=10, cis_reference=CIS_MAP["legacy_auth_blocked"]["id"],
+       empty_details={})
 def check_legacy_auth(client: GraphClient):
     policies = client.get_all("/identity/conditionalAccess/policies")
-    if isinstance(policies, dict):
-        return {"check_name": "legacy_auth_blocked", "display_name": "Legacy Auth Blocked",
-                "category": "conditional_access", "status": "skip", "points_earned": None, "points_possible": 10,
-                "summary": policies["error"], "issues": [], "details": {}, "cis_reference": CIS_MAP["legacy_auth_blocked"]["id"]}
 
     blocking = []
     for p in policies:
@@ -69,12 +68,11 @@ def check_legacy_auth(client: GraphClient):
     }
 
 
+@check("named_locations", "Named Locations", "conditional_access",
+       points_possible=4, cis_reference=CIS_MAP["named_locations"]["id"],
+       empty_details={})
 def check_named_locations(client: GraphClient):
     locations = client.get_all("/identity/conditionalAccess/namedLocations")
-    if isinstance(locations, dict):
-        return {"check_name": "named_locations", "display_name": "Named Locations",
-                "category": "conditional_access", "status": "skip", "points_earned": None, "points_possible": 4,
-                "summary": locations["error"], "issues": [], "details": {}, "cis_reference": CIS_MAP["named_locations"]["id"]}
 
     details = [{"name": loc.get("displayName"),
                 "type": loc.get("@odata.type", "").split(".")[-1],

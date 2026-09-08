@@ -7,17 +7,15 @@ SharePoint & OneDrive checks:
   - Inactive OneDrive accounts (warn)
 """
 from datetime import datetime, timezone, timedelta
-from app.services.graph_client import GraphClient
+from app.checks.base import check
+from app.services.graph_client import GraphClient, GraphError
 
 INACTIVE_DAYS = 90
 
 
+@check("sharepoint_sites", "SharePoint Site Usage", "sharepoint", empty_details={})
 def check_sharepoint_sites(client: GraphClient):
     rows = client.get_report_csv("/reports/getSharePointSiteUsageDetail(period='D30')")
-    if isinstance(rows, dict):
-        return {"check_name": "sharepoint_sites", "display_name": "SharePoint Site Usage",
-                "category": "sharepoint", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": rows["error"], "issues": [], "details": {}, "cis_reference": None}
 
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=INACTIVE_DAYS)
@@ -76,14 +74,13 @@ def check_sharepoint_sites(client: GraphClient):
     }
 
 
+@check("external_sharing", "External Sharing Policy", "sharepoint", empty_details={})
 def check_external_sharing(client: GraphClient):
     settings = client.get_one("/admin/sharepoint/settings", beta=True)
-    if settings is None or (isinstance(settings, dict) and "error" in settings):
-        # Fallback: report sharing as unknown
-        return {"check_name": "external_sharing", "display_name": "External Sharing Policy",
-                "category": "sharepoint", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": "SharePointTenantSettings.Read.All permission required or endpoint not available",
-                "issues": [], "details": {}, "cis_reference": None}
+    if not settings:
+        raise GraphError("SharePointTenantSettings.Read.All permission required "
+                         "or endpoint not available",
+                         endpoint="/admin/sharepoint/settings")
 
     sharing_capability = settings.get("sharingCapability", "unknown")
     # Values: disabled, existingExternalUserSharingOnly, externalUserSharingOnly, externalUserAndGuestSharing
@@ -107,12 +104,9 @@ def check_external_sharing(client: GraphClient):
     }
 
 
+@check("onedrive_usage", "OneDrive Usage", "sharepoint", empty_details={})
 def check_onedrive_usage(client: GraphClient):
     rows = client.get_report_csv("/reports/getOneDriveUsageAccountDetail(period='D30')")
-    if isinstance(rows, dict):
-        return {"check_name": "onedrive_usage", "display_name": "OneDrive Usage",
-                "category": "sharepoint", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": rows["error"], "issues": [], "details": {}, "cis_reference": None}
 
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=INACTIVE_DAYS)

@@ -6,15 +6,13 @@ Groups checks:
   - Large groups (info)
   - Group expiration policy (info)
 """
-from app.services.graph_client import GraphClient
+from app.checks.base import check
+from app.services.graph_client import GraphClient, GraphError
 
 
+@check("groups", "Group Inventory", "groups", empty_details={})
 def check_groups(client: GraphClient):
     groups = client.get_all("/groups?$select=id,displayName,groupTypes,mailEnabled,securityEnabled,mail,createdDateTime")
-    if isinstance(groups, dict):
-        return {"check_name": "groups", "display_name": "Group Inventory",
-                "category": "groups", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": groups["error"], "issues": [], "details": {}, "cis_reference": None}
 
     ownerless, empty, large = [], [], []
     type_counts = {"m365": 0, "security": 0, "distribution": 0, "mail_security": 0, "other": 0}
@@ -45,10 +43,16 @@ def check_groups(client: GraphClient):
             type_counts["other"] += 1
 
         # Get owners and members
-        owners = client.get_all(f"/groups/{gid}/owners?$select=id,displayName")
-        members = client.get_all(f"/groups/{gid}/members?$select=id")
-        owner_count = len(owners) if not isinstance(owners, dict) else -1
-        member_count = len(members) if not isinstance(members, dict) else -1
+        # -1 marks "couldn't read", distinct from a genuine count of 0 — an
+        # unreadable group must not be reported as ownerless.
+        try:
+            owner_count = len(client.get_all(f"/groups/{gid}/owners?$select=id,displayName"))
+        except GraphError:
+            owner_count = -1
+        try:
+            member_count = len(client.get_all(f"/groups/{gid}/members?$select=id"))
+        except GraphError:
+            member_count = -1
 
         entry = {
             "id": gid,
@@ -91,12 +95,9 @@ def check_groups(client: GraphClient):
     }
 
 
+@check("group_expiration", "Group Expiration Policy", "groups", empty_details={})
 def check_group_expiration_policy(client: GraphClient):
     policies = client.get_all("/groupLifecyclePolicies")
-    if isinstance(policies, dict):
-        return {"check_name": "group_expiration", "display_name": "Group Expiration Policy",
-                "category": "groups", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": policies["error"], "issues": [], "details": {}, "cis_reference": None}
 
     configured = len(policies) > 0
     details = [{"lifetime_days": p.get("groupLifetimeInDays"),

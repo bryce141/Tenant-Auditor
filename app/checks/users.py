@@ -5,20 +5,20 @@ Users & Activity checks:
   - M365 app usage per user (info)
 """
 from datetime import datetime, timezone, timedelta
-from app.services.graph_client import GraphClient
+from app.checks.base import check
+from app.services.graph_client import GraphClient, GraphError
 
 INACTIVE_DAYS = 90
 
 
+@check("user_activity", "User Sign-in Activity", "users", empty_details={})
 def check_user_activity(client: GraphClient):
-    users = client.get_all("/users?$select=id,displayName,userPrincipalName,accountEnabled,signInActivity,assignedLicenses")
-    if isinstance(users, dict):
-        # Fallback without signInActivity
+    try:
+        users = client.get_all("/users?$select=id,displayName,userPrincipalName,accountEnabled,signInActivity,assignedLicenses")
+    except GraphError:
+        # signInActivity needs AuditLog.Read.All plus P1/P2; without it, report
+        # the roster with no activity data rather than skipping entirely.
         users = client.get_all("/users?$select=id,displayName,userPrincipalName,accountEnabled,assignedLicenses")
-        if isinstance(users, dict):
-            return {"check_name": "user_activity", "display_name": "User Sign-in Activity",
-                    "category": "users", "status": "skip", "points_earned": None, "points_possible": None,
-                    "summary": users["error"], "issues": [], "details": {}, "cis_reference": None}
         for u in users:
             u["signInActivity"] = None
 
@@ -81,12 +81,9 @@ def check_user_activity(client: GraphClient):
     }
 
 
+@check("app_usage", "M365 App Usage", "users")
 def check_app_usage(client: GraphClient):
     rows = client.get_report_csv("/reports/getM365AppUserDetail(period='D30')")
-    if isinstance(rows, dict):
-        return {"check_name": "app_usage", "display_name": "M365 App Usage",
-                "category": "users", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": rows["error"], "issues": [], "details": [], "cis_reference": None}
 
     details = []
     for row in rows:

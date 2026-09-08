@@ -5,7 +5,8 @@ Licensing checks:
   - Per-user license breakdown (info)
   - Unlicensed active users (warn)
 """
-from app.services.graph_client import GraphClient
+from app.checks.base import check
+from app.services.graph_client import GraphClient, GraphError
 
 # Friendly SKU name map (add more as needed)
 SKU_NAMES = {
@@ -30,12 +31,9 @@ def _friendly_sku(sku_part):
     return SKU_NAMES.get(sku_part, sku_part)
 
 
+@check("license_summary", "License Summary", "licensing")
 def check_license_summary(client: GraphClient):
     skus = client.get_all("/subscribedSkus")
-    if isinstance(skus, dict):
-        return {"check_name": "license_summary", "display_name": "License Summary",
-                "category": "licensing", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": skus["error"], "issues": [], "details": [], "cis_reference": None}
 
     details = []
     unused_licenses = []
@@ -76,18 +74,16 @@ def check_license_summary(client: GraphClient):
     }
 
 
+@check("user_licenses", "Per-User Licenses", "licensing")
 def check_user_licenses(client: GraphClient):
     users = client.get_all("/users?$select=id,displayName,userPrincipalName,assignedLicenses,accountEnabled")
-    if isinstance(users, dict):
-        return {"check_name": "user_licenses", "display_name": "Per-User Licenses",
-                "category": "licensing", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": users["error"], "issues": [], "details": [], "cis_reference": None}
 
-    # Get SKU map for name resolution
-    skus = client.get_all("/subscribedSkus")
-    sku_map = {}
-    if not isinstance(skus, dict):
-        sku_map = {s["skuId"]: _friendly_sku(s.get("skuPartNumber", s["skuId"])) for s in skus}
+    # SKU names are cosmetic — fall back to raw ids if the lookup fails.
+    try:
+        sku_map = {s["skuId"]: _friendly_sku(s.get("skuPartNumber", s["skuId"]))
+                   for s in client.get_all("/subscribedSkus")}
+    except GraphError:
+        sku_map = {}
 
     details = []
     unlicensed = []

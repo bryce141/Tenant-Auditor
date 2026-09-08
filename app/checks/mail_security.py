@@ -5,6 +5,7 @@ Mail Security checks:
   - Email Authentication      (10 pts — SPF, DKIM, DMARC per domain)
 """
 from datetime import datetime, timezone, timedelta
+from app.checks.base import check
 from app.services.graph_client import GraphClient, GraphError
 from app.services.scoring import CIS_MAP
 
@@ -46,23 +47,16 @@ DANGEROUS_PERMISSIONS = {
 }
 
 
+@check("mailbox_forwarding", "Mailbox Forwarding", "mail_security",
+       points_possible=8, cis_reference=CIS_MAP["mailbox_forwarding"]["id"])
 def check_mailbox_forwarding(client: GraphClient):
     users = client.get_all("/users?$select=id,displayName,userPrincipalName")
-    if isinstance(users, dict):
-        return {"check_name": "mailbox_forwarding", "display_name": "Mailbox Forwarding",
-                "category": "mail_security", "status": "skip", "points_earned": None, "points_possible": 8,
-                "summary": users["error"], "issues": [], "details": [], "cis_reference": CIS_MAP["mailbox_forwarding"]["id"]}
 
     # Batched rather than one request per user. Note this deliberately does not
     # filter to licensed users: shared mailboxes are unlicensed and can carry
     # forwarding rules, which is exactly where an attacker would put one.
     endpoints = [f"/users/{u['id']}/mailboxSettings" for u in users]
-    try:
-        settings = client.batch_get(endpoints)
-    except GraphError as e:
-        return {"check_name": "mailbox_forwarding", "display_name": "Mailbox Forwarding",
-                "category": "mail_security", "status": "skip", "points_earned": None, "points_possible": 8,
-                "summary": str(e), "issues": [], "details": [], "cis_reference": CIS_MAP["mailbox_forwarding"]["id"]}
+    settings = client.batch_get(endpoints)
 
     results = []
     for u in users:
@@ -103,15 +97,19 @@ def _check_expiry(credentials, app_name, cred_type):
     return findings
 
 
+@check("app_credential_expiry", "App Credential Expiry", "mail_security",
+       points_possible=8, cis_reference=CIS_MAP["app_credential_expiry"]["id"],
+       empty_details={},
+       also=[{"check_name": "app_permissions", "display_name": "App Permissions",
+              "points_possible": 5, "cis_reference": CIS_MAP["app_permissions"]["id"]}])
 def check_app_registrations(client: GraphClient):
     apps = client.get_all("/applications?$select=id,displayName,passwordCredentials,keyCredentials,requiredResourceAccess")
-    if isinstance(apps, dict):
-        return {"check_name": "app_credential_expiry", "display_name": "App Credential Expiry",
-                "category": "mail_security", "status": "skip", "points_earned": None, "points_possible": 8,
-                "summary": apps["error"], "issues": [], "details": {}, "cis_reference": CIS_MAP["app_credential_expiry"]["id"]}
 
-    sps = client.get_all("/servicePrincipals?$select=id,displayName,keyCredentials&$top=200")
-    if isinstance(sps, dict):
+    # Service principal certificates are a bonus; app registrations alone still
+    # give a useful answer if this call is denied.
+    try:
+        sps = client.get_all("/servicePrincipals?$select=id,displayName,keyCredentials&$top=200")
+    except GraphError:
         sps = []
 
     cred_issues, perm_issues = [], []
@@ -161,6 +159,9 @@ def check_app_registrations(client: GraphClient):
     ]
 
 
+@check("email_authentication", "Email Authentication (SPF/DKIM/DMARC)", "mail_security",
+       points_possible=10, cis_reference=CIS_MAP["email_authentication"]["id"],
+       empty_details={})
 def check_email_authentication(client: GraphClient):
     """Check SPF, DKIM, and DMARC records for all verified tenant domains."""
     if not _DNS_AVAILABLE:
@@ -173,14 +174,6 @@ def check_email_authentication(client: GraphClient):
         }
 
     domains_resp = client.get_all("/domains?$select=id,isVerified,isDefault")
-    if isinstance(domains_resp, dict):
-        return {
-            "check_name": "email_authentication", "display_name": "Email Authentication (SPF/DKIM/DMARC)",
-            "category": "mail_security", "status": "skip",
-            "points_earned": None, "points_possible": 10,
-            "summary": domains_resp["error"], "issues": [], "details": {},
-            "cis_reference": CIS_MAP["email_authentication"]["id"],
-        }
 
     verified = [d for d in domains_resp if d.get("isVerified") and not d["id"].endswith(".onmicrosoft.com")]
     if not verified:

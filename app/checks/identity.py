@@ -11,7 +11,8 @@ Identity & Access checks:
 """
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
-from app.services.graph_client import GraphClient
+from app.checks.base import check
+from app.services.graph_client import GraphClient, GraphError
 from app.services.scoring import CIS_MAP
 
 STALE_DAYS = 90
@@ -36,8 +37,9 @@ def _mfa_from_registration_report(client: GraphClient):
     a blocked account without MFA isn't a live gap. Returns None if the report
     is unavailable so the caller can fall back.
     """
-    rows = client.get_all("/reports/authenticationMethods/userRegistrationDetails")
-    if isinstance(rows, dict):
+    try:
+        rows = client.get_all("/reports/authenticationMethods/userRegistrationDetails")
+    except GraphError:
         return None
     return [{
         "user": r.get("userPrincipalName"),
@@ -51,17 +53,17 @@ def _mfa_from_user_enumeration(client: GraphClient):
     """Fallback: one authentication/methods call per user.
 
     Costs a request per user, so it only runs when the registration report
-    isn't available. Returns the client's error dict if user listing fails.
+    isn't available. Propagates GraphError if user listing itself fails.
     """
     users = client.get_all("/users?$select=id,displayName,userPrincipalName")
-    if isinstance(users, dict):
-        return users
 
     results = []
     for user in users:
         uid, name, upn = user["id"], user["displayName"], user["userPrincipalName"]
-        methods_resp = client.get_all(f"/users/{uid}/authentication/methods")
-        if isinstance(methods_resp, dict):
+        try:
+            methods_resp = client.get_all(f"/users/{uid}/authentication/methods")
+        except GraphError:
+            # One unreadable user shouldn't sink the whole check.
             results.append({"user": upn, "display_name": name, "mfa_registered": None})
             continue
         non_pw = [m.get("@odata.type", "") for m in methods_resp if "password" not in m.get("@odata.type", "").lower()]
@@ -69,15 +71,12 @@ def _mfa_from_user_enumeration(client: GraphClient):
     return results
 
 
+@check("mfa_registration", "MFA Registration", "identity",
+       points_possible=20, cis_reference=CIS_MAP["mfa_registration"]["id"])
 def check_mfa(client: GraphClient):
     results = _mfa_from_registration_report(client)
     if results is None:
         results = _mfa_from_user_enumeration(client)
-
-    if isinstance(results, dict):
-        return {"check_name": "mfa_registration", "display_name": "MFA Registration",
-                "category": "identity", "status": "skip", "points_earned": None, "points_possible": 20,
-                "summary": results["error"], "issues": [], "details": [], "cis_reference": CIS_MAP["mfa_registration"]["id"]}
 
     # Users whose state couldn't be read are excluded from the ratio rather
     # than counted as failures.
@@ -106,15 +105,17 @@ def check_mfa(client: GraphClient):
     }
 
 
+@check("stale_accounts", "Stale Accounts (90+ days)", "identity")
 def check_stale_accounts(client: GraphClient):
-    users = client.get_all("/users?$select=id,displayName,userPrincipalName,signInActivity,accountEnabled")
-    fallback = isinstance(users, dict)
-    if fallback:
+    # signInActivity needs AuditLog.Read.All and an Entra ID P1/P2 licence, so
+    # fall back to a plain user list and report "no sign-in data" rather than
+    # failing the whole check on a free tenant.
+    fallback = False
+    try:
+        users = client.get_all("/users?$select=id,displayName,userPrincipalName,signInActivity,accountEnabled")
+    except GraphError:
+        fallback = True
         users = client.get_all("/users?$select=id,displayName,userPrincipalName,accountEnabled")
-    if isinstance(users, dict):
-        return {"check_name": "stale_accounts", "display_name": "Stale Accounts",
-                "category": "identity", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": users["error"], "issues": [], "details": [], "cis_reference": None}
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=STALE_DAYS)
     results = []
@@ -147,19 +148,20 @@ def check_stale_accounts(client: GraphClient):
     }
 
 
+@check("admin_role_hygiene", "Admin Role Hygiene", "identity",
+       points_possible=10, cis_reference=CIS_MAP["admin_role_hygiene"]["id"])
 def check_admin_roles(client: GraphClient):
     roles = client.get_all("/directoryRoles")
-    if isinstance(roles, dict):
-        return {"check_name": "admin_role_hygiene", "display_name": "Admin Role Hygiene",
-                "category": "identity", "status": "skip", "points_earned": None, "points_possible": 10,
-                "summary": roles["error"], "issues": [], "details": [], "cis_reference": CIS_MAP["admin_role_hygiene"]["id"]}
 
     user_roles = defaultdict(lambda: {"name": "", "upn": "", "user_type": "", "roles": []})
     results = []
 
     for role in roles:
-        members = client.get_all(f"/directoryRoles/{role['id']}/members")
-        if isinstance(members, dict) or not members:
+        try:
+            members = client.get_all(f"/directoryRoles/{role['id']}/members")
+        except GraphError:
+            continue
+        if not members:
             continue
         role_id = role.get("roleTemplateId")
         is_privileged = role_id in PRIVILEGED_ROLE_IDS
@@ -203,12 +205,9 @@ def check_admin_roles(client: GraphClient):
     }
 
 
+@check("guest_users", "Guest Users", "identity")
 def check_guest_users(client: GraphClient):
     guests = client.get_all("/users?$filter=userType eq 'Guest'&$select=id,displayName,userPrincipalName,createdDateTime,accountEnabled")
-    if isinstance(guests, dict):
-        return {"check_name": "guest_users", "display_name": "Guest Users",
-                "category": "identity", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": guests["error"], "issues": [], "details": [], "cis_reference": None}
 
     details = [{"user": g.get("userPrincipalName"), "display_name": g.get("displayName"),
                 "enabled": g.get("accountEnabled", True), "created": g.get("createdDateTime")} for g in guests]
@@ -221,12 +220,11 @@ def check_guest_users(client: GraphClient):
     }
 
 
+@check("risky_users", "Risky Users", "identity")
 def check_risky_users(client: GraphClient):
+    # Identity Protection requires Entra ID P2; without it Graph answers 403,
+    # which the decorator turns into a skip.
     data = client.get_all("/identityProtection/riskyUsers")
-    if isinstance(data, dict):
-        return {"check_name": "risky_users", "display_name": "Risky Users",
-                "category": "identity", "status": "skip", "points_earned": None, "points_possible": None,
-                "summary": data["error"], "issues": [], "details": [], "cis_reference": None}
 
     details = [{"user": u.get("userPrincipalName"), "display_name": u.get("userDisplayName"),
                 "risk_level": u.get("riskLevel"), "risk_state": u.get("riskState"),
@@ -242,20 +240,25 @@ def check_risky_users(client: GraphClient):
     }
 
 
+@check("pim_standing_roles", "PIM / Standing Roles", "identity",
+       points_possible=10, cis_reference=CIS_MAP["pim_standing_roles"]["id"],
+       empty_details={})
 def check_pim_roles(client: GraphClient):
     assignments = client.get_all("/roleManagement/directory/roleAssignments?$expand=principal")
-    if isinstance(assignments, dict):
-        return {"check_name": "pim_standing_roles", "display_name": "PIM / Standing Roles",
-                "category": "identity", "status": "skip", "points_earned": None, "points_possible": 10,
-                "summary": assignments["error"], "issues": [], "details": {}, "cis_reference": CIS_MAP["pim_standing_roles"]["id"]}
 
-    eligible_resp = client.get_all("/roleManagement/directory/roleEligibilitySchedules")
-    pim_in_use = not isinstance(eligible_resp, dict) and len(eligible_resp) > 0
+    # Eligible schedules need P2. Their absence is the finding, not an error.
+    try:
+        eligible_resp = client.get_all("/roleManagement/directory/roleEligibilitySchedules")
+        pim_in_use = len(eligible_resp) > 0
+    except GraphError:
+        pim_in_use = False
 
-    roles_resp = client.get_all("/roleManagement/directory/roleDefinitions")
-    role_map = {}
-    if not isinstance(roles_resp, dict):
-        role_map = {r["id"]: r.get("displayName", r["id"]) for r in roles_resp}
+    # Role names are cosmetic; fall back to raw ids if the lookup fails.
+    try:
+        role_map = {r["id"]: r.get("displayName", r["id"])
+                    for r in client.get_all("/roleManagement/directory/roleDefinitions")}
+    except GraphError:
+        role_map = {}
 
     standing = []
     for a in assignments:
@@ -291,12 +294,10 @@ def check_pim_roles(client: GraphClient):
     }
 
 
+@check("password_policy", "Password Policy", "identity",
+       points_possible=5, cis_reference=CIS_MAP["password_policy"]["id"])
 def check_password_policy(client: GraphClient):
     users = client.get_all("/users?$select=id,displayName,userPrincipalName,passwordPolicies")
-    if isinstance(users, dict):
-        return {"check_name": "password_policy", "display_name": "Password Policy",
-                "category": "identity", "status": "skip", "points_earned": None, "points_possible": 5,
-                "summary": users["error"], "issues": [], "details": [], "cis_reference": CIS_MAP["password_policy"]["id"]}
 
     results = [{"user": u.get("userPrincipalName"), "display_name": u.get("displayName"),
                 "password_never_expires": "DisablePasswordExpiration" in (u.get("passwordPolicies") or "")}
@@ -315,12 +316,11 @@ def check_password_policy(client: GraphClient):
     }
 
 
+@check("sspr_enabled", "SSPR Enabled", "identity",
+       points_possible=5, cis_reference=CIS_MAP["sspr_enabled"]["id"],
+       empty_details={})
 def check_sspr(client: GraphClient):
     data = client.get_one("/policies/authorizationPolicy")
-    if isinstance(data, dict) and "error" in data:
-        return {"check_name": "sspr_enabled", "display_name": "SSPR Enabled",
-                "category": "identity", "status": "skip", "points_earned": None, "points_possible": 5,
-                "summary": data["error"], "issues": [], "details": {}, "cis_reference": CIS_MAP["sspr_enabled"]["id"]}
 
     scope = (data or {}).get("allowedToUseSSPR", "none")
     enabled = scope != "none"
@@ -335,17 +335,10 @@ def check_sspr(client: GraphClient):
     }
 
 
+@check("secure_score", "Microsoft Secure Score", "identity", empty_details={})
 def check_secure_score(client: GraphClient):
     """Fetch Microsoft Secure Score and top improvement actions."""
     scores = client.get_all("/security/secureScores", params={"$top": "1"})
-    if isinstance(scores, dict):
-        return {
-            "check_name": "secure_score", "display_name": "Microsoft Secure Score",
-            "category": "identity", "status": "skip",
-            "points_earned": None, "points_possible": None,
-            "summary": scores["error"], "issues": [], "details": {},
-            "cis_reference": None,
-        }
     if not scores:
         return {
             "check_name": "secure_score", "display_name": "Microsoft Secure Score",
@@ -363,12 +356,14 @@ def check_secure_score(client: GraphClient):
     created = latest.get("createdDateTime", "")
 
     # Fetch control profiles for titles, remediation, and max scores
-    profiles = client.get_all("/security/secureScoreControlProfiles")
+    # Profiles supply titles and remediation text; without them the check still
+    # reports the score, just without per-control detail.
     profile_map = {}
-    if not isinstance(profiles, dict):
-        for p in profiles:
-            key = p.get("id") or p.get("controlName", "")
-            profile_map[key] = p
+    try:
+        for p in client.get_all("/security/secureScoreControlProfiles"):
+            profile_map[p.get("id") or p.get("controlName", "")] = p
+    except GraphError:
+        pass
 
     # Build improvement actions list from control scores
     control_scores = latest.get("controlScores", [])
