@@ -30,17 +30,33 @@ CIS_MAP = {
 }
 
 
+def _points(check):
+    """Read points off either a result dict or a ReportCheck row."""
+    if isinstance(check, dict):
+        return check.get("points_earned"), check.get("points_possible")
+    return getattr(check, "points_earned", None), getattr(check, "points_possible", None)
+
+
 def calculate_security_score(checks):
-    """
-    Given a list of ReportCheck dicts (from report.to_dict()),
-    compute the aggregate security score.
+    """Aggregate score over checks that actually ran.
+
+    Accepts result dicts or ReportCheck rows.
+
+    A check that could not run contributes to neither side of the ratio. It
+    keeps points_possible set so the UI can show what was at stake, which makes
+    it tempting to sum that column directly — doing so quietly penalises a
+    tenant for a control that was never measured, and produces a different
+    number here than on the report. Callers should use this rather than summing
+    by hand.
+
     Returns {"overall": int, "earned": int, "possible": int}
     """
     earned = 0
     possible = 0
-    for c in checks:
-        if c.get("points_earned") is not None and c.get("points_possible"):
-            earned += c["points_earned"]
-            possible += c["points_possible"]
+    for check in checks:
+        got, out_of = _points(check)
+        if got is not None and out_of:
+            earned += got
+            possible += out_of
     overall = round((earned / possible) * 100) if possible else 0
     return {"overall": overall, "earned": earned, "possible": possible}

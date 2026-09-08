@@ -3,6 +3,7 @@ from app.auth.graph_auth import get_active_tenant, has_credentials
 from app.models.report import Report, ReportCheck
 from app.services.comparison import compare, find_previous, headline
 from app.services.formatting import distinct_history
+from app.services.scoring import calculate_security_score
 from app.services.report_runner import start_full_run, get_latest_report, get_run_progress
 
 bp = Blueprint("dashboard", __name__, url_prefix="/dashboard")
@@ -27,11 +28,10 @@ def index():
         if r:
             security_checks.extend(r.checks)
 
-    score = None
-    if security_checks:
-        earned = sum(c.points_earned for c in security_checks if c.points_earned is not None)
-        possible = sum(c.points_possible for c in security_checks if c.points_possible is not None)
-        score = round((earned / possible) * 100) if possible else 0
+    # Use the shared calculation: summing points_possible by hand counts
+    # skipped checks in the denominator and reports a lower score here than the
+    # report itself does.
+    score = calculate_security_score(security_checks)["overall"] if security_checks else None
 
     # Alert counts
     alerts = _build_alerts(latest)

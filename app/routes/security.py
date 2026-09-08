@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, current_app, jsonify
 from app.auth.graph_auth import get_active_tenant, has_credentials
 from app.models.report import Report
 from app.services.formatting import distinct_history
+from app.services.scoring import calculate_security_score
 from app.services.report_runner import (start_category_run, get_latest_report,
                                          get_running_report, SECURITY_CATEGORIES)
 
@@ -20,9 +21,8 @@ def index():
         if r:
             all_checks.extend(r.checks)
 
-    earned = sum(c.points_earned for c in all_checks if c.points_earned is not None)
-    possible = sum(c.points_possible for c in all_checks if c.points_possible is not None)
-    score = round((earned / possible) * 100) if possible else None
+    scored = calculate_security_score(all_checks)
+    score = scored["overall"] if scored["possible"] else None
 
     history_q = Report.query.filter(Report.report_type.in_(list(SECURITY_CATEGORIES)),
                                     Report.status == "complete", Report.score != None)

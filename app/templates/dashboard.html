@@ -170,6 +170,9 @@
         <p class="text-xs mt-2 {{ 'text-amber-400' if stale > 0 else 'text-slate-600' }}">
           {{ stale }} stale (90d+)
         </p>
+      {% elif user_report %}
+        <p class="text-sm text-slate-600 mt-3">No data</p>
+        <p class="text-xs text-slate-700 mt-1 leading-snug">{{ (activity_check.summary if activity_check else "Nothing returned for this tenant") | truncate(60) }}</p>
       {% else %}
         <p class="text-sm text-slate-600 mt-3">Not run yet</p>
         <p class="text-xs text-blue-500/70 mt-1">Run users report →</p>
@@ -196,6 +199,9 @@
         <p class="text-xs mt-2 {{ 'text-amber-400' if lic_check.details.total_available > 0 else 'text-emerald-400' }}">
           {{ lic_check.details.total_available }} unassigned
         </p>
+      {% elif lic_report %}
+        <p class="text-sm text-slate-600 mt-3">No data</p>
+        <p class="text-xs text-slate-700 mt-1 leading-snug">{{ (lic_check.summary if lic_check else "Nothing returned for this tenant") | truncate(60) }}</p>
       {% else %}
         <p class="text-sm text-slate-600 mt-3">Not run yet</p>
         <p class="text-xs text-blue-500/70 mt-1">Run licensing report →</p>
@@ -220,6 +226,9 @@
       {% if sp_check and sp_check.details %}
         <p class="text-4xl font-bold text-slate-100">{{ sp_check.details.total_sites }}</p>
         <p class="text-xs text-slate-500 mt-2">{{ sp_check.details.total_storage_gb }} GB used</p>
+      {% elif sp_report %}
+        <p class="text-sm text-slate-600 mt-3">No data</p>
+        <p class="text-xs text-slate-700 mt-1 leading-snug">{{ (sp_check.summary if sp_check else "Nothing returned for this tenant") | truncate(60) }}</p>
       {% else %}
         <p class="text-sm text-slate-600 mt-3">Not run yet</p>
         <p class="text-xs text-blue-500/70 mt-1">Run sharepoint report →</p>
@@ -250,6 +259,9 @@
         <p class="text-xs mt-2 {{ 'text-amber-400' if mb_check.details.near_quota else 'text-slate-500' }}">
           {{ mb_check.details.near_quota | length }} near quota
         </p>
+      {% elif ex_report %}
+        <p class="text-sm text-slate-600 mt-3">No data</p>
+        <p class="text-xs text-slate-700 mt-1 leading-snug">{{ (ex_check.summary if ex_check else "Nothing returned for this tenant") | truncate(60) }}</p>
       {% else %}
         <p class="text-sm text-slate-600 mt-3">Not run yet</p>
         <p class="text-xs text-blue-500/70 mt-1">Run exchange report →</p>
@@ -276,6 +288,9 @@
         <p class="text-xs mt-2 {{ 'text-amber-400' if grp_check.details.ownerless else 'text-slate-500' }}">
           {{ grp_check.details.ownerless | length }} ownerless
         </p>
+      {% elif grp_report %}
+        <p class="text-sm text-slate-600 mt-3">No data</p>
+        <p class="text-xs text-slate-700 mt-1 leading-snug">{{ (grp_check.summary if grp_check else "Nothing returned for this tenant") | truncate(60) }}</p>
       {% else %}
         <p class="text-sm text-slate-600 mt-3">Not run yet</p>
         <p class="text-xs text-blue-500/70 mt-1">Run groups report →</p>
