@@ -68,8 +68,11 @@
   <div class="bg-slate-800/40 border border-slate-800 rounded-xl px-6 py-14 text-center">
     <p class="text-slate-400 font-semibold">No tenants configured</p>
     <p class="text-sm text-slate-600 mt-1 max-w-md mx-auto">
-      Add an app registration to start auditing. Each tenant needs its own registration
-      with the Graph permissions listed in the README, and admin consent granted.
+      Each tenant needs a read-only app registration with admin consent granted.
+      <a href="https://github.com/bryce141/Tenant-Auditor/blob/main/ONBOARDING.md"
+         target="_blank" rel="noopener" class="text-blue-400 hover:text-blue-300">ONBOARDING.md</a>
+      is a page you can send the client's administrator — or they can run
+      <code class="text-slate-500">setup_tenant.ps1</code> and send back three values.
     </p>
     <button onclick="openForm()"
             class="mt-5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
@@ -83,7 +86,11 @@
 <div id="form-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-950/80 p-4">
   <div class="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-lg p-6">
     <h2 id="form-title" class="text-lg font-bold text-slate-100 mb-1">Add tenant</h2>
-    <p class="text-xs text-slate-500 mb-5">Credentials are encrypted before they are stored.</p>
+    <p class="text-xs text-slate-500 mb-5">
+      Credentials are encrypted before they are stored.
+      <a href="https://github.com/bryce141/Tenant-Auditor/blob/main/ONBOARDING.md"
+         target="_blank" rel="noopener" class="text-blue-400 hover:text-blue-300">How to get these →</a>
+    </p>
 
     <input type="hidden" id="f-id">
     <div class="space-y-3.5">

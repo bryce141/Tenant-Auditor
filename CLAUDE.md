@@ -49,6 +49,18 @@ A check deriving several results from one call must list the extras in the
 decorator's `also=`, or they vanish from the report when the call fails, making
 the audit look smaller instead of showing the control went unmeasured.
 
+## Onboarding material
+
+Four places name the Graph permission list: `scripts/check_permissions.py`
+(the source of truth), both setup scripts, and ONBOARDING.md. Adding a
+permission to the code and forgetting the scripts means an onboarded tenant
+silently skips checks and the client's admin has to be asked back.
+`tests/test_onboarding_docs.py` fails in both directions — missing, and
+requesting more than is used.
+
+The setup scripts resolve permission IDs from the Graph service principal at
+runtime. Don't hardcode GUIDs; a test forbids it.
+
 ## Adding a check
 
 1. Write it in the right `checks/` module, decorated with `@check(...)`

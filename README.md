@@ -102,6 +102,12 @@ nothing until consent is granted, even after they're added.
 | `Reports.Read.All` | Mailbox, SharePoint, OneDrive, and M365 app usage reports |
 | `SharePointTenantSettings.Read.All` | SharePoint external sharing settings |
 
+**Onboarding a client tenant:** send them
+**[ONBOARDING.md](ONBOARDING.md)** — a one-page guide for their administrator,
+with a script (`scripts/setup_tenant.ps1` or `setup_tenant.sh`) that creates the
+registration, grants consent, and prints the three values to send back. Manual
+portal steps are included for anyone who can't run scripts.
+
 To verify what's actually granted, run:
 
 ```bash
