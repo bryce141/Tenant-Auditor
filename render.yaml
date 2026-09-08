@@ -18,8 +18,22 @@ services:
       - key: DATABASE_URL
         value: sqlite:////var/data/tenant_auditor.db
       - key: SECRET_KEY
+        # Generated once and kept. Changing it invalidates every session AND
+        # makes stored tenant secrets undecryptable — they'd need re-entering.
         generateValue: true
+      # Render terminates TLS, so the session cookie must be HTTPS-only.
+      # Without this it is sent in the clear on any non-TLS request.
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
     disk:
       name: tenant-data
       mountPath: /var/data
       sizeGB: 1
+
+# Scheduled audits are deliberately NOT a separate Render cron service. A Render
+# disk attaches to exactly one service, so a cron job would get its own empty
+# filesystem and its own empty SQLite database — it would audit nothing and mail
+# a digest saying so. On a host where one machine holds both (a VPS, or your own
+# machine) the crontab in the README is the right answer. On Render, either move
+# to Postgres so both services can reach the same data, or trigger the run over
+# HTTP from an external scheduler.
