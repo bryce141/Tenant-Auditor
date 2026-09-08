@@ -9,9 +9,15 @@ this file covers the conventions worth knowing before changing anything.
 `run.py` creates the app (`app/__init__.py` factory). Everything lives in `app/`:
 
 - `checks/` — one module per category, each exposing `run_all(client)`
-- `services/` — Graph client, orchestration, scoring, export, comparison
+- `services/` — Graph client, orchestration, scoring, export, comparison,
+  digest, mail, formatting, crypto, remediation
 - `routes/` — one blueprint per section
-- `models/` — `Report` + `ReportCheck`, and `Tenant`
+- `models/` — `Report` + `ReportCheck`, `Tenant`, `AdminUser`, `Branding`
+- `cli.py` — `flask audit` / `digest` / `scheduled-run`
+- `schema.py` — Alembic bootstrap at startup
+
+Local dev serves on **5001**, not 5000: macOS ControlCenter holds 5000. `PORT`
+overrides it. Deployment notes are in DEPLOYING.md.
 
 There is no v1 any more. `main.py`, `app.py`, `auditor/`, and root `templates/`
 were removed; anything referring to them is out of date.
@@ -68,6 +74,22 @@ no check disappears on failure. It covers all 28 checks without a tenant, and it
 is what makes refactoring the check modules safe.
 
 The suite must pass under `-W error::DeprecationWarning`.
+
+## Check what the API actually returns
+
+Six bugs on this project came from real Graph responses and none from the test
+suite, because fixtures encoded assumptions rather than the API. The worst was
+`allowedToUseSSPR`, a boolean compared against the string `"none"` — and
+`False != "none"` is True, so a tenant with SSPR switched off passed with full
+marks. A false pass is the worst failure an audit tool has.
+
+Before trusting a field, read its type and enum values on Microsoft Learn.
+Fetching the resource page takes under a minute and twice contradicted a
+confident assumption. `clientAppTypes` is the other example: `"all"` includes
+legacy authentication, so matching only `exchangeActiveSync`/`other` told
+correctly-configured tenants they were exposed.
+
+Where a check can fail open or closed, test both states explicitly.
 
 ## Things that will bite you
 
