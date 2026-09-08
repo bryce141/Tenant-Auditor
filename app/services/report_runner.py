@@ -104,11 +104,13 @@ def _record_auth_failure(category, exc):
         db.session.rollback()
 
 
-def run_category(category: str, app_context):
+def run_category(category: str, app_context, tenant=None):
     """Run all checks for a single category. Called in background thread."""
     with app_context:
         try:
-            headers, tenant_id = get_headers()
+            # The tenant is resolved in the request and passed in: a background
+            # thread has no session to read the active selection from.
+            headers, tenant_id = get_headers(tenant)
         except Exception as e:
             # Record the failure. Returning silently here leaves no Report row,
             # so the UI shows nothing at all and a bad or expired secret looks
@@ -154,11 +156,11 @@ def run_category(category: str, app_context):
         return report_id
 
 
-def run_full(app_context):
+def run_full(app_context, tenant=None):
     """Run all categories sequentially. Called in background thread."""
     with app_context:
         try:
-            headers, tenant_id = get_headers()
+            headers, tenant_id = get_headers(tenant)
         except Exception as e:
             _record_auth_failure("full", e)
             # Clear the overlay, which otherwise spins forever on a auth failure.
@@ -234,31 +236,39 @@ def run_full(app_context):
         return report_id
 
 
-def start_category_run(category: str, flask_app):
+def start_category_run(category: str, flask_app, tenant=None):
     """Kick off a category run in a background thread."""
     ctx = flask_app.app_context()
-    t = threading.Thread(target=run_category, args=(category, ctx), daemon=True)
+    t = threading.Thread(target=run_category, args=(category, ctx, tenant), daemon=True)
     t.start()
 
 
-def start_full_run(flask_app):
+def start_full_run(flask_app, tenant=None):
     """Kick off a full run in a background thread."""
     ctx = flask_app.app_context()
-    t = threading.Thread(target=run_full, args=(ctx,), daemon=True)
+    t = threading.Thread(target=run_full, args=(ctx, tenant), daemon=True)
     t.start()
 
 
-def get_latest_report(category: str):
-    """Return the most recent complete report for a category."""
-    return (Report.query
-            .filter_by(report_type=category, status="complete")
+def _scoped(query, tenant_id=None):
+    """Restrict a report query to one tenant.
+
+    Reports carry the Entra directory GUID, so filtering on it keeps historical
+    reports attached to their tenant without needing a foreign key. Passing None
+    returns every tenant's reports, which is only wanted on the all-tenants view.
+    """
+    return query.filter(Report.tenant_id == tenant_id) if tenant_id else query
+
+
+def get_latest_report(category: str, tenant_id=None):
+    """Most recent complete report for a category, optionally scoped to a tenant."""
+    return (_scoped(Report.query.filter_by(report_type=category, status="complete"), tenant_id)
             .order_by(Report.created_at.desc())
             .first())
 
 
-def get_running_report(category: str):
-    """Return any currently running report for a category."""
-    return (Report.query
-            .filter_by(report_type=category, status="running")
+def get_running_report(category: str, tenant_id=None):
+    """Any currently running report for a category."""
+    return (_scoped(Report.query.filter_by(report_type=category, status="running"), tenant_id)
             .order_by(Report.created_at.desc())
             .first())

@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, current_app, jsonify
-from app.auth.graph_auth import has_credentials
+from app.auth.graph_auth import get_active_tenant, has_credentials
 from app.models.report import Report
 from app.services.report_runner import (start_category_run, get_latest_report,
                                          get_running_report, SECURITY_CATEGORIES)
@@ -9,8 +9,10 @@ bp = Blueprint("security", __name__, url_prefix="/security")
 
 @bp.route("/")
 def index():
-    reports = {cat: get_latest_report(cat) for cat in SECURITY_CATEGORIES}
-    running = {cat: get_running_report(cat) is not None for cat in SECURITY_CATEGORIES}
+    tenant = get_active_tenant()
+    scope = tenant.tenant_id if tenant else None
+    reports = {cat: get_latest_report(cat, scope) for cat in SECURITY_CATEGORIES}
+    running = {cat: get_running_report(cat, scope) is not None for cat in SECURITY_CATEGORIES}
 
     all_checks = []
     for r in reports.values():
@@ -21,9 +23,11 @@ def index():
     possible = sum(c.points_possible for c in all_checks if c.points_possible is not None)
     score = round((earned / possible) * 100) if possible else None
 
-    score_history = (Report.query
-                     .filter(Report.report_type.in_(list(SECURITY_CATEGORIES)), Report.status == "complete", Report.score != None)
-                     .order_by(Report.created_at.asc()).limit(20).all())
+    history_q = Report.query.filter(Report.report_type.in_(list(SECURITY_CATEGORIES)),
+                                    Report.status == "complete", Report.score != None)
+    if scope:
+        history_q = history_q.filter(Report.tenant_id == scope)
+    score_history = history_q.order_by(Report.created_at.asc()).limit(20).all()
     history = [{"date": r.created_at.strftime("%b %d"), "score": r.score, "type": r.report_type}
                for r in score_history]
 
@@ -37,6 +41,7 @@ def index():
                 break
 
     return render_template("security/index.html",
+                           tenant=tenant,
                            reports=reports, running=running,
                            all_checks=all_checks, score=score, history=history,
                            secure_score_check=secure_score_check,
@@ -47,16 +52,19 @@ def index():
 def run(category):
     if category not in SECURITY_CATEGORIES:
         return jsonify({"error": "Invalid category"}), 400
-    if get_running_report(category):
+    tenant = get_active_tenant()
+    if get_running_report(category, tenant.tenant_id if tenant else None):
         return jsonify({"status": "already_running"}), 409
-    start_category_run(category, current_app._get_current_object())
+    start_category_run(category, current_app._get_current_object(), tenant)
     return jsonify({"status": "started"})
 
 
 @bp.route("/api/status/<category>")
 def status(category):
-    running = get_running_report(category)
-    latest = get_latest_report(category)
+    tenant = get_active_tenant()
+    scope = tenant.tenant_id if tenant else None
+    running = get_running_report(category, scope)
+    latest = get_latest_report(category, scope)
     return jsonify({
         "running": running is not None,
         "last_run": latest.created_at.isoformat() if latest else None,

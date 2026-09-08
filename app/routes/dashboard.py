@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, redirect, url_for, current_app, jsonify
-from app.auth.graph_auth import has_credentials
+from app.auth.graph_auth import get_active_tenant, has_credentials
 from app.models.report import Report, ReportCheck
 from app.services.report_runner import start_full_run, get_latest_report, get_run_progress
 
@@ -11,8 +11,11 @@ def index():
     if not has_credentials():
         return redirect(url_for("landing.index"))
 
+    tenant = get_active_tenant()
+    scope = tenant.tenant_id if tenant else None
+
     # Latest complete report per category for summary cards
-    latest = {cat: get_latest_report(cat) for cat in
+    latest = {cat: get_latest_report(cat, scope) for cat in
               ["identity", "conditional_access", "mail_security", "licensing", "users", "sharepoint", "exchange", "groups"]}
 
     # Security score from the latest security-related reports
@@ -32,17 +35,18 @@ def index():
     alerts = _build_alerts(latest)
 
     # Score history for chart (from full or identity reports)
-    history_reports = (Report.query
-                       .filter(Report.report_type.in_(["full", "identity"]), Report.status == "complete", Report.score != None)
-                       .order_by(Report.created_at.asc())
-                       .limit(20).all())
+    history_q = Report.query.filter(Report.report_type.in_(["full", "identity"]),
+                                    Report.status == "complete", Report.score != None)
+    if scope:
+        history_q = history_q.filter(Report.tenant_id == scope)
+    history_reports = history_q.order_by(Report.created_at.asc()).limit(20).all()
     history = [{"date": r.created_at.strftime("%b %d"), "score": r.score} for r in history_reports]
 
     # Recent reports (any type, last 10)
-    recent = (Report.query
-              .filter_by(status="complete")
-              .order_by(Report.created_at.desc())
-              .limit(10).all())
+    recent_q = Report.query.filter_by(status="complete")
+    if scope:
+        recent_q = recent_q.filter(Report.tenant_id == scope)
+    recent = recent_q.order_by(Report.created_at.desc()).limit(10).all()
 
     # Extract MS Secure Score check
     secure_score_check = None
@@ -54,6 +58,7 @@ def index():
                 break
 
     return render_template("dashboard.html",
+                           tenant=tenant,
                            score=score,
                            latest=latest,
                            alerts=alerts,
@@ -64,7 +69,7 @@ def index():
 
 @bp.route("/api/run/full", methods=["POST"])
 def run_full():
-    start_full_run(current_app._get_current_object())
+    start_full_run(current_app._get_current_object(), get_active_tenant())
     return {"status": "started"}
 
 

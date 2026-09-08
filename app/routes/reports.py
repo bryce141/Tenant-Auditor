@@ -2,6 +2,7 @@ import csv
 import io
 from flask import Blueprint, render_template, jsonify, Response
 from app import db
+from app.auth.graph_auth import get_active_tenant
 from app.models.report import Report, ReportCheck
 
 bp = Blueprint("reports", __name__, url_prefix="/reports")
@@ -9,10 +10,12 @@ bp = Blueprint("reports", __name__, url_prefix="/reports")
 
 @bp.route("/")
 def index():
-    reports = (Report.query
-               .order_by(Report.created_at.desc())
-               .limit(100).all())
-    return render_template("reports/index.html", reports=reports)
+    tenant = get_active_tenant()
+    q = Report.query
+    if tenant:
+        q = q.filter(Report.tenant_id == tenant.tenant_id)
+    reports = q.order_by(Report.created_at.desc()).limit(100).all()
+    return render_template("reports/index.html", reports=reports, tenant=tenant)
 
 
 @bp.route("/api/export/<report_id>")

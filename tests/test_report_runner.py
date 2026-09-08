@@ -26,7 +26,7 @@ def app():
 
 
 def test_auth_failure_records_a_failed_report(app, monkeypatch):
-    def boom():
+    def boom(tenant=None):
         raise Exception("AADSTS7000222: client secret is expired")
 
     monkeypatch.setattr(report_runner, "get_headers", boom)
@@ -43,7 +43,7 @@ def test_auth_failure_records_a_failed_report(app, monkeypatch):
 def test_failed_report_does_not_look_like_a_running_one(app, monkeypatch):
     """A failed run must not wedge the UI into a permanent 'running' state."""
     monkeypatch.setattr(report_runner, "get_headers",
-                        lambda: (_ for _ in ()).throw(Exception("nope")))
+                        lambda tenant=None: (_ for _ in ()).throw(Exception("nope")))
     report_runner.run_category("identity", app.app_context())
 
     assert report_runner.get_running_report("identity") is None
@@ -53,7 +53,7 @@ def test_failed_report_does_not_look_like_a_running_one(app, monkeypatch):
 
 def test_full_run_auth_failure_clears_the_progress_overlay(app, monkeypatch):
     monkeypatch.setattr(report_runner, "get_headers",
-                        lambda: (_ for _ in ()).throw(Exception("bad secret")))
+                        lambda tenant=None: (_ for _ in ()).throw(Exception("bad secret")))
     report_runner.run_full(app.app_context())
 
     progress = report_runner.get_run_progress()
@@ -67,7 +67,7 @@ def test_full_run_auth_failure_clears_the_progress_overlay(app, monkeypatch):
 
 def test_full_run_attaches_checks_to_the_full_report(app, monkeypatch):
     """A full report used to carry a score and no checks, so exports came out empty."""
-    monkeypatch.setattr(report_runner, "get_headers", lambda: ({}, "tenant-1"))
+    monkeypatch.setattr(report_runner, "get_headers", lambda tenant=None: ({}, "tenant-1"))
     monkeypatch.setattr(report_runner, "GraphClient", lambda headers: object())
 
     def fake_module(category):

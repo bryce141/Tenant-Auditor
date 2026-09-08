@@ -13,13 +13,16 @@ engineering, and full-stack tooling.
 
 ## Features
 
+- **Multi-tenant** — audit any number of tenants from one install, switching
+  between them without redeploying; client secrets encrypted at rest
 - **27 checks** across 8 categories — identity, conditional access, mail
   security, licensing, users, SharePoint, Exchange, and groups
 - **Weighted 0–100 score** over 110 points of CIS-mapped security controls
 - **Web dashboard** with score trend history and cross-category alerts
 - **Per-category runs** or a full audit with live progress
 - **Every run persisted** to SQLite, so history survives restarts
-- **CSV export** per report
+- **Client-ready HTML report** with severity-ranked findings and remediation,
+  plus CSV export
 - **Credentials configured in the UI** — no redeploy to point at a new tenant
 
 ---
@@ -126,15 +129,17 @@ pip install -r requirements.txt
 python run.py
 ```
 
-Open [http://localhost:5000](http://localhost:5000) and enter your tenant ID,
-client ID, and client secret on the setup screen. **Test Connection** validates
-them against Entra ID before saving.
+Open [http://localhost:5000](http://localhost:5000), go to **Tenants**, and add
+one. **Test connection** validates the credentials against Entra ID before
+saving.
 
-Credentials are written to `config.json` (gitignored). If you'd rather supply
-them out-of-band, set `TENANT_ID`, `CLIENT_ID`, and `CLIENT_SECRET` in a `.env`
-file instead — `config.json` takes precedence when both are present.
+Each tenant needs its own app registration with the permissions above. Secrets
+are encrypted with a key derived from `SECRET_KEY` before being stored, so set
+a real one in production — if it changes, stored secrets can't be decrypted and
+must be re-entered.
 
-> Neither `.env` nor `config.json` is ever committed.
+An existing single-tenant `config.json` or `.env` is imported automatically on
+first start, so upgrading installs keep working. Neither file is ever committed.
 
 ---
 
@@ -142,6 +147,9 @@ file instead — `config.json` takes precedence when both are present.
 
 Once credentials are saved:
 
+- **Tenants** (`/tenants`) — add, edit, and switch tenants. With more than one
+  configured, a switcher appears in the sidebar; everything else on the site is
+  scoped to the selected tenant.
 - **Dashboard** (`/dashboard`) — overall score, per-category tiles, alerts, and
   score history. **Run Full Audit** executes all 8 categories in the background
   with a live progress overlay.
@@ -149,7 +157,11 @@ Once credentials are saved:
   and per-check issue lists. Categories can be re-run individually.
 - **Licensing / Users / SharePoint / Exchange / Groups** — inventory views, each
   independently runnable.
-- **Reports** (`/reports`) — every run, with CSV export and delete.
+- **Reports** (`/reports`) — every run for the active tenant. **Report** opens a
+  standalone HTML audit document — executive summary, findings ranked
+  worst-first with remediation, then passing and skipped checks as evidence of
+  scope. It is fully self-contained and prints to PDF. **CSV** gives the raw
+  rows.
 - **Settings** (`/settings`) — update or re-test tenant credentials.
 
 Runs execute in a background thread, so the UI stays responsive; the relevant
@@ -185,14 +197,19 @@ tenant-auditor/
     ├── __init__.py               # app factory, blueprint registration
     ├── config.py
     ├── auth/
-    │   └── graph_auth.py         # MSAL token acquisition, credential storage
+    │   └── graph_auth.py         # MSAL tokens, tenant selection
     ├── models/
-    │   └── report.py             # Report + ReportCheck (SQLAlchemy)
+    │   ├── report.py             # Report + ReportCheck (SQLAlchemy)
+    │   └── tenant.py             # Tenant, with encrypted client secret
     ├── services/
     │   ├── graph_client.py       # paginated Graph wrapper (JSON + CSV reports)
     │   ├── report_runner.py      # orchestration, background runs, progress
+    │   ├── report_export.py      # standalone HTML report
+    │   ├── remediation.py        # per-check guidance and severity
+    │   ├── crypto.py             # secret encryption at rest
     │   └── scoring.py            # weights and CIS mapping
     ├── checks/                   # one module per category, each exposing run_all()
+    │   ├── base.py               # @check decorator, GraphError to skip
     │   ├── identity.py
     │   ├── conditional_access.py
     │   ├── mail_security.py
@@ -218,7 +235,22 @@ in `CATEGORY_MAP` in `report_runner.py`, and a blueprint in `routes/`.
 - **Flask** + **Flask-SQLAlchemy** — web app and persistence
 - **SQLite** — report storage
 - **dnspython** — live SPF/DKIM/DMARC record lookups
+- **cryptography** — Fernet encryption for stored client secrets
 - **Tailwind** + **Chart.js** — UI and score trend visualization
+
+---
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+`tests/test_check_contract.py` runs every check module against a client where
+all Graph calls fail and one where they all succeed empty, asserting results
+stay well-formed and no check silently disappears. That covers all 28 checks
+without needing a tenant.
 
 ---
 
@@ -226,6 +258,8 @@ in `CATEGORY_MAP` in `report_runner.py`, and a blueprint in `routes/`.
 
 - Checks requiring **Entra ID P1/P2** (stale accounts, risky users) degrade
   gracefully on free and developer tenants — they skip rather than fail
-- Credentials are never hardcoded; `config.json` and `.env` are both gitignored
+- Credentials are never hardcoded, and stored secrets are encrypted at rest.
+  That protects a leaked database file, not someone who already holds the
+  application environment — the key is derived from `SECRET_KEY`
 - `secureScores` reflects Microsoft's own scoring and is surfaced alongside the
   CIS score rather than folded into it — the two measure different things

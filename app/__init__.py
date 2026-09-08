@@ -16,11 +16,43 @@ def create_app():
     app.jinja_env.globals["CHECK_GUIDANCE"] = remediation.GUIDANCE
     app.jinja_env.globals["severity_of"] = remediation.severity_of
 
+    # The tenant switcher lives in base.html, so every view needs these without
+    # each route having to pass them. Failures are swallowed: the switcher is
+    # chrome, and a missing tenants table on first boot must not 500 every page.
+    @app.context_processor
+    def _tenant_context():
+        from app.auth.graph_auth import get_active_tenant
+        from app.models.tenant import Tenant
+
+        def all_tenants():
+            try:
+                return Tenant.query.order_by(Tenant.name).all()
+            except Exception:
+                return []
+
+        try:
+            current = get_active_tenant()
+        except Exception:
+            current = None
+
+        return {"ACTIVE_TENANTS": all_tenants, "CURRENT_TENANT": current}
+
     with app.app_context():
-        from app.models import report  # noqa: F401
+        from app.models import report, tenant  # noqa: F401
         db.create_all()
 
-        from app.routes import landing, dashboard, security, licensing, users, sharepoint, exchange, groups, reports, settings
+        # Move a legacy config.json tenant into the tenants table so existing
+        # installs keep working without re-entering credentials.
+        from app.auth.graph_auth import import_legacy_config
+        try:
+            import_legacy_config()
+        except Exception:
+            # Never block startup on this; the tenants page can be used instead.
+            db.session.rollback()
+
+        from app.routes import (landing, dashboard, security, licensing, users, sharepoint,
+                                exchange, groups, reports, settings, tenants)
+        app.register_blueprint(tenants.bp)
         app.register_blueprint(landing.bp)
         app.register_blueprint(dashboard.bp)
         app.register_blueprint(security.bp)
