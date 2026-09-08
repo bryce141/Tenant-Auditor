@@ -5,7 +5,7 @@ Mail Security checks:
   - Email Authentication      (10 pts — SPF, DKIM, DMARC per domain)
 """
 from datetime import datetime, timezone, timedelta
-from app.services.graph_client import GraphClient
+from app.services.graph_client import GraphClient, GraphError
 from app.services.scoring import CIS_MAP
 
 try:
@@ -53,11 +53,23 @@ def check_mailbox_forwarding(client: GraphClient):
                 "category": "mail_security", "status": "skip", "points_earned": None, "points_possible": 8,
                 "summary": users["error"], "issues": [], "details": [], "cis_reference": CIS_MAP["mailbox_forwarding"]["id"]}
 
+    # Batched rather than one request per user. Note this deliberately does not
+    # filter to licensed users: shared mailboxes are unlicensed and can carry
+    # forwarding rules, which is exactly where an attacker would put one.
+    endpoints = [f"/users/{u['id']}/mailboxSettings" for u in users]
+    try:
+        settings = client.batch_get(endpoints)
+    except GraphError as e:
+        return {"check_name": "mailbox_forwarding", "display_name": "Mailbox Forwarding",
+                "category": "mail_security", "status": "skip", "points_earned": None, "points_possible": 8,
+                "summary": str(e), "issues": [], "details": [], "cis_reference": CIS_MAP["mailbox_forwarding"]["id"]}
+
     results = []
     for u in users:
-        uid, upn, name = u["id"], u["userPrincipalName"], u["displayName"]
-        mb = client.get_one(f"/users/{uid}/mailboxSettings")
-        if mb is None or (isinstance(mb, dict) and "error" in mb):
+        upn, name = u["userPrincipalName"], u["displayName"]
+        mb = settings.get(f"/users/{u['id']}/mailboxSettings")
+        if not isinstance(mb, dict):
+            # No mailbox, or settings unreadable — unknown, not clean.
             results.append({"user": upn, "display_name": name, "status": "unavailable", "forwarding_address": None})
             continue
         fwd = mb.get("forwardingSmtpAddress")
