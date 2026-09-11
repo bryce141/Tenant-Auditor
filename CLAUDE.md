@@ -10,10 +10,13 @@ this file covers the conventions worth knowing before changing anything.
 
 - `checks/` — one module per category, each exposing `run_all(client)`
 - `services/` — Graph client, orchestration, scoring, export, comparison,
-  digest, mail, formatting, crypto, remediation
+  digest, mail, formatting, crypto, remediation, plus the CA simulator
+  (`signin_corpus`, `ca_memberships`, `ca_locations`, `ca_app_groups`,
+  `ca_engine`, `ca_validation`, `ca_impact`, `ca_builder`, `ca_workspace`)
 - `routes/` — one blueprint per section
 - `models/` — `Report` + `ReportCheck`, `Tenant`, `AdminUser`, `Branding`
-- `cli.py` — `flask audit` / `digest` / `scheduled-run`
+- `cli.py` — `flask audit` / `digest` / `scheduled-run`, and
+  `ca-corpus` / `ca-validate` / `ca-impact`
 - `schema.py` — Alembic bootstrap at startup
 
 Local dev serves on **5001**, not 5000: macOS ControlCenter holds 5000. `PORT`
@@ -184,6 +187,94 @@ endpoints. If cross-site GET ever mutates anything, that reasoning breaks and
 you need real CSRF tokens.
 
 Tests that exercise routes need `tests/conftest.py::signed_in_client`.
+
+## The Conditional Access simulator
+
+A second product inside the app, at `/simulator`. You compose a draft CA policy
+and it reports which real users and sign-ins it would have affected, from the
+last 30 days of the tenant's own traffic. It never writes a policy: the draft is
+evaluated and handed back as Graph JSON for the admin to apply themselves.
+
+Microsoft's `POST /identity/conditionalAccess/evaluate` only scores policies
+that **already exist** in a tenant, so it cannot answer this question about a
+draft. Hence our own engine — and hence the harness that proves it right.
+
+The pipeline, in the order the data flows:
+
+1. `signin_corpus` — pulls `/auditLogs/signIns` and reduces it to distinct
+   **condition tuples**: the handful of things a policy actually tests. A
+   tenant's thousands of sign-ins collapse to dozens, and evaluating the tuples
+   gives the same answer far more cheaply.
+2. `ca_memberships` — a sign-in gives a `userId` and nothing else, so group and
+   role membership is resolved per user and cached.
+3. `ca_locations`, `ca_app_groups` — turn an IP and a resource id into the
+   named locations and app-group tokens (`Office365`) a policy targets.
+4. `ca_engine` — `evaluate(policy, tuple, membership)`. Pure, no I/O.
+5. `ca_validation` — the evidence. Every tuple is evaluated twice, by our engine
+   and by Microsoft, and the verdicts diffed.
+6. `ca_impact` — what a draft would change, as a **delta** against what the
+   tenant already enforces.
+
+### Rules that are not negotiable here
+
+**Never answer a condition you cannot evaluate.** Anything unimplemented returns
+`UNSUPPORTED` naming the specific condition. It must never fall through to
+"doesn't apply", because a policy silently treated as inapplicable is reported
+as breaking nobody — the false negative the whole tool exists to avoid, and the
+one people believe.
+
+**Three values are not `False`.** A risk level of `hidden` means the tenant has
+no Entra ID P2, not that there is no risk. An unresolved user is not a user with
+no groups. `isCompliant: null` is not non-compliant. Each has produced, or
+nearly produced, a confident wrong answer.
+
+**Impact is a delta.** A draft requiring MFA does not affect sign-ins an
+existing policy already covers — those users notice nothing. Every way this
+number can go wrong inflates it, which is the direction that flatters the tool.
+
+**The builder and the engine stay in lockstep.** `ca_builder` derives its
+vocabulary from the engine's own constants, and `tests/test_ca_builder.py`
+builds a policy using every condition the form can express and asserts the
+engine returns a verdict. A form field the engine ignores fails the suite.
+
+### The harness is the point, and it works
+
+Run `flask ca-validate --tenant X`. It exits non-zero on any disagreement, so it
+can gate a change to the engine. `analysisReasons` in Microsoft's response names
+the condition it blames, which points straight at the broken part.
+
+It has found three real bugs that the unit suite — 590-odd tests, green
+throughout — did not:
+
+- `includeUsers: ["None"]` read as "targets nobody". It means the user list is
+  empty; the portal writes every role- and group-scoped policy that way.
+- Office 365 suite membership resolved only via service principals, so
+  `OfficeHome` — which has none in the tenant — was reported outside the suite.
+- `appId` used where `resourceId` was meant. CA targets the resource, not the
+  client; that one was caught by reading the API reference, not by the harness,
+  but it is the same class.
+
+Two things follow. Re-validate after widening condition coverage, every time.
+And when a module's docstring commits to a fallback for when an approximation
+turns out wrong, keep it — twice now the fix was exactly the retreat the code
+had already written down.
+
+### Seeding a tenant to work against
+
+`scripts/prepare_sim_tenant.ps1` builds a dev tenant from nothing: users,
+groups, licences, and report-only CA policies.
+`scripts/generate_signin_traffic.py` fills the corpus.
+`scripts/seed_demo_findings.ps1` adds real misconfiguration worth demoing.
+
+All three write to a tenant, which the auditor itself never does. They are dev
+setup, not product, and every one is dry-run by default with a `-Remove`.
+
+Two hard-won facts about generated traffic. Entra derives
+`deviceDetail.operatingSystem` from the **User-Agent** on the token request —
+even for the resource-owner flow — so rotating agents is the only way scripted
+sign-ins get a device platform. And sign-in retention is **not retroactive**: a
+newly licensed tenant starts accumulating from that moment, so the corpus can
+only ever be as old as the licence.
 
 ## Credentials
 

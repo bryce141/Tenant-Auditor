@@ -30,6 +30,59 @@ engineering, and full-stack tooling.
 - **Client-ready HTML report** with severity-ranked findings and remediation,
   plus CSV export
 - **Credentials configured in the UI** — no redeploy to point at a new tenant
+- **Conditional Access simulator** — compose a draft CA policy and see which
+  real users and sign-ins it would have broken, before it touches the tenant
+
+---
+
+## Conditional Access simulator
+
+Entra's own *What If* tool evaluates one hypothetical sign-in at a time, so you
+have to already imagine the scenario that breaks. This evaluates a draft policy
+against **real observed traffic** — the last 30 days of the tenant's sign-in log
+— and surfaces breakage nobody thought to test for.
+
+> 312 sign-ins across 21 users would be affected
+> out of 476 sign-ins by 21 users over the last 30 days
+
+Impact is a **delta**: a control users are already subject to is not counted, so
+a draft that duplicates an existing policy correctly reports that it changes
+nothing.
+
+**Nothing is ever written to the tenant.** The draft is evaluated and handed
+back as Graph JSON to apply yourself.
+
+### Why you can believe the numbers
+
+Microsoft's `POST /identity/conditionalAccess/evaluate` can only score policies
+that already exist in a tenant, so it cannot evaluate a draft. This tool
+implements its own Conditional Access evaluation engine — and then checks that
+engine against Microsoft's, on the tenant's real policies and real sign-ins:
+
+```
+476 sign-ins, 68 distinct condition sets
+Microsoft What If endpoint   756/756 verdicts agree   100.00%
+Sign-in log cross-check      720/720 verdicts agree   100.00%
+```
+
+The second row is the stronger one: it compares against
+`appliedConditionalAccessPolicies`, which records what the tenant *actually did*
+at real sign-in time. That report is a page in the app (**Why trust these
+numbers?**), not a footnote, and `flask ca-validate` exits non-zero on any
+disagreement so it can gate a change to the engine.
+
+Conditions the engine cannot evaluate are reported as **declared gaps**, counted
+separately and never as agreement. A policy it cannot read is never silently
+scored as inapplicable — that would report the policy as breaking nobody, which
+is the one failure a simulator must not have.
+
+### Command line
+
+```bash
+flask ca-corpus   --tenant X          # sign-in traffic reduced to condition sets
+flask ca-validate --tenant X          # check the engine against Microsoft
+flask ca-impact   draft.json --tenant X   # what a draft policy would break
+```
 
 ---
 
@@ -180,6 +233,12 @@ Once credentials are saved:
   previous audit, findings ranked worst-first with remediation, then passing and
   skipped checks as evidence of scope. It is fully self-contained and prints to PDF. **CSV** gives the raw
   rows.
+- **CA Simulator** (`/simulator`) — load the tenant's sign-in traffic once, then
+  compose draft Conditional Access policies against it. Start from a preset —
+  block legacy auth, require MFA for admins — or build one from scratch; the
+  form offers exactly the conditions the engine can evaluate and lists the ones
+  it cannot. **Why trust these numbers?** runs the agreement check against
+  Microsoft's What If endpoint.
 - **Settings** (`/settings`) — update or re-test tenant credentials.
 
 Runs execute in a background thread, so the UI stays responsive; the relevant
@@ -264,11 +323,19 @@ tenant-auditor/
 ├── requirements.txt
 ├── render.yaml                   # Render deploy config
 ├── scripts/
-│   └── check_permissions.py      # Graph permission diagnostic
+│   ├── check_permissions.py      # Graph permission diagnostic
+│   ├── setup_tenant.ps1 / .sh    # create + consent the app registration
+│   ├── prepare_sim_tenant.ps1    # build a dev tenant to simulate against
+│   ├── seed_test_users.ps1       # test users and groups
+│   ├── seed_ca_test_policies.ps1 # report-only CA policies
+│   ├── seed_demo_findings.ps1    # real misconfiguration, for demos
+│   ├── generate_signin_traffic.py# fill the corpus with sign-ins
+│   └── ingest_tenant_credentials.py # store a secret without displaying it
 └── app/
     ├── __init__.py               # app factory, blueprint registration
     ├── config.py
     ├── cli.py                    # flask audit / digest / scheduled-run
+    │                             #   + ca-corpus / ca-validate / ca-impact
     ├── auth/
     │   ├── graph_auth.py         # MSAL tokens, tenant selection
     │   └── session_auth.py       # login state, fail-closed request guard
@@ -286,7 +353,18 @@ tenant-auditor/
     │   ├── mailer.py             # SMTP delivery
     │   ├── formatting.py         # display labels, relative times
     │   ├── crypto.py             # secret encryption at rest
-    │   └── scoring.py            # weights and CIS mapping
+    │   ├── scoring.py            # weights and CIS mapping
+    │   │
+    │   │                         # — Conditional Access simulator —
+    │   ├── signin_corpus.py      # sign-in log → distinct condition tuples
+    │   ├── ca_memberships.py     # group and role membership per user
+    │   ├── ca_locations.py       # IP / country → named locations
+    │   ├── ca_app_groups.py      # Office365 and admin-portal app groups
+    │   ├── ca_engine.py          # evaluate(policy, tuple) — pure, no I/O
+    │   ├── ca_validation.py      # agreement harness vs Microsoft What If
+    │   ├── ca_impact.py          # what a draft would change, as a delta
+    │   ├── ca_builder.py         # form input → Graph policy JSON
+    │   └── ca_workspace.py       # per-tenant corpus cache
     ├── checks/                   # one module per category, each exposing run_all()
     │   ├── base.py               # @check decorator, GraphError to skip
     │   ├── identity.py
