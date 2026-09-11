@@ -110,6 +110,22 @@ class GraphClient:
         except (ValueError, TypeError):
             return 0
 
+    def post_one(self, endpoint, payload, beta=False):
+        """POST a JSON body, return the JSON response. Raises GraphError.
+
+        For the read-only action endpoints — `directoryObjects/getByIds` and
+        `identity/conditionalAccess/evaluate` — which are POSTs because the
+        request needs a body, not because they change anything in the tenant.
+        """
+        url = self._url(endpoint, beta)
+        resp = requests.post(url,
+                             headers={**self.headers,
+                                      "Content-Type": "application/json"},
+                             json=payload, timeout=60)
+        if not resp.ok:
+            self._raise_for(resp, endpoint)
+        return resp.json()
+
     def batch_get(self, endpoints, beta=False):
         """GET many endpoints via Graph JSON batching.
 
