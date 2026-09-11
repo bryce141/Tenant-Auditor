@@ -104,8 +104,9 @@ def sign_in(app, user, scope):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--tenant-id", help="tenant to authenticate against "
-                                        "(default: read from the auditor's configured tenant)")
+    ap.add_argument("--tenant", help="name (or part of one) of the configured "
+                                     "tenant to authenticate against")
+    ap.add_argument("--tenant-id", help="tenant id, instead of --tenant")
     ap.add_argument("--client-id", help="app registration to authenticate with "
                                         "(must allow public client flows)")
     ap.add_argument("--count", type=int, default=100,
@@ -120,18 +121,31 @@ def main():
 
     tenant_id, client_id = args.tenant_id, args.client_id
     if not (tenant_id and client_id):
-        # Fall back to whatever tenant the auditor is configured for, so this
-        # does not need the values pasted in twice.
+        # Resolve from the auditor's configured tenants, so the values do not
+        # need pasting in twice. Never silently pick one: generating traffic
+        # against the wrong tenant is slow to notice — the sign-ins land
+        # somewhere real, just not where the corpus is being built.
         from app import create_app
         from app.models.tenant import Tenant
 
         flask_app = create_app()
         with flask_app.app_context():
-            tenant = Tenant.query.order_by(Tenant.name).first()
-            if tenant is None:
-                raise SystemExit("No tenant configured, and --tenant-id/--client-id not given.")
-            tenant_id = tenant_id or tenant.tenant_id
-            client_id = client_id or tenant.client_id
+            tenants = Tenant.query.order_by(Tenant.name).all()
+            if not tenants:
+                raise SystemExit("No tenants configured, and --tenant-id/--client-id not given.")
+            if args.tenant:
+                matches = [t for t in tenants if args.tenant.lower() in t.name.lower()]
+            else:
+                matches = tenants
+            if not matches:
+                known = ", ".join(t.name for t in tenants)
+                raise SystemExit(f"No tenant matching {args.tenant!r}. Known: {known}")
+            if len(matches) > 1:
+                known = ", ".join(t.name for t in matches)
+                raise SystemExit(f"Several tenants match — pass --tenant. Candidates: {known}")
+            tenant_id = tenant_id or matches[0].tenant_id
+            client_id = client_id or matches[0].client_id
+            print(f"Using configured tenant: {matches[0].name}")
 
     print(f"Tenant : {tenant_id}")
     print(f"Client : {client_id}")

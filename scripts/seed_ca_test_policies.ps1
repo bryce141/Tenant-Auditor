@@ -233,11 +233,17 @@ New-TestPolicy -Name "High sign-in risk blocked" -Exercises "signInRiskLevels (n
 
 # --- states other than report-only ----------------------------------------
 
+# Grant is `mfa` rather than `block` on purpose. Entra rejects an all-users,
+# all-applications block with "ConditionalActionPolicy validation failed due to
+# BlockEveryonePolicy" — and it applies that guard even when the policy is
+# being created in the disabled state, which is not obvious. The grant control
+# is irrelevant to what this policy is here to exercise: a disabled policy is
+# reported as not applying regardless of what it would have done.
 New-TestPolicy -Name "Disabled policy" -State "disabled" -Exercises "state=disabled path on both sides" -Conditions @{
     users = @{ includeUsers = @("All") }
     applications = @{ includeApplications = @("All") }
     clientAppTypes = @("all")
-} -Grant @{ operator = "OR"; builtInControls = @("block") }
+} -Grant @{ operator = "OR"; builtInControls = @("mfa") }
 
 # --- conditions the engine deliberately does NOT implement ----------------
 # These should show up in the agreement report as declared gaps, never as

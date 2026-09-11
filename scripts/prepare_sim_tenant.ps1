@@ -152,17 +152,68 @@ if ($app) {
 }
 
 # ---------------------------------------------------------------------------
-Step 3 "Public client flows"
+Step 3 "Public client flows and delegated consent"
 
 if (-not $app) {
     Write-Host "  skipped — no app yet (dry run)." -ForegroundColor DarkGray
-} elseif ($app.IsFallbackPublicClient) {
-    Write-Host "  already enabled." -ForegroundColor DarkGray
-} elseif (-not $Execute) {
-    Write-Host "  would enable (the traffic generator cannot authenticate without it)" -ForegroundColor Yellow
 } else {
-    Update-MgApplication -ApplicationId $app.Id -IsFallbackPublicClient
-    Write-Host "  enabled." -ForegroundColor Green
+    if ($app.IsFallbackPublicClient) {
+        Write-Host "  public client flows: already enabled." -ForegroundColor DarkGray
+    } elseif (-not $Execute) {
+        Write-Host "  would enable public client flows" -ForegroundColor Yellow
+    } else {
+        Update-MgApplication -ApplicationId $app.Id -IsFallbackPublicClient
+        Write-Host "  public client flows: enabled." -ForegroundColor Green
+    }
+
+    # The auditor's 15 permissions are APPLICATION permissions. The
+    # resource-owner flow the traffic generator uses is a DELEGATED flow, and
+    # an app with no delegated consent fails every sign-in with AADSTS65001
+    # regardless of how many application roles it holds. One delegated scope is
+    # enough; User.Read is the smallest that exists.
+    $graphSp = Get-MgServicePrincipal -Filter "appId eq '00000003-0000-0000-c000-000000000000'"
+    $userRead = $graphSp.Oauth2PermissionScopes | Where-Object { $_.Value -eq "User.Read" }
+    if (-not $userRead) { throw "Could not resolve the User.Read delegated scope from Microsoft Graph." }
+
+    $appSp = Get-MgServicePrincipal -Filter "appId eq '$($app.AppId)'" -ErrorAction SilentlyContinue
+    if (-not $appSp -and $Execute) {
+        $appSp = New-MgServicePrincipal -AppId $app.AppId
+    }
+
+    if (-not $appSp) {
+        Write-Host "  delegated consent: skipped — no service principal yet (dry run)." -ForegroundColor DarkGray
+    } else {
+        $existingGrant = Get-MgOauth2PermissionGrant -Filter "clientId eq '$($appSp.Id)'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.ResourceId -eq $graphSp.Id -and $_.Scope -match "User.Read" }
+
+        if ($existingGrant) {
+            Write-Host "  delegated consent: already granted." -ForegroundColor DarkGray
+        } elseif (-not $Execute) {
+            Write-Host "  would grant delegated User.Read (without it every scripted sign-in fails AADSTS65001)" -ForegroundColor Yellow
+        } else {
+            # Declare it on the app so the portal shows it...
+            $existingAccess = @($app.RequiredResourceAccess)
+            $graphAccess = $existingAccess | Where-Object { $_.ResourceAppId -eq $graphSp.AppId }
+            $resources = @($existingAccess | Where-Object { $_.ResourceAppId -ne $graphSp.AppId })
+            $accessList = @()
+            if ($graphAccess) { $accessList += @($graphAccess.ResourceAccess) }
+            if (-not ($accessList | Where-Object { $_.Id -eq $userRead.Id })) {
+                $accessList += @{ Id = $userRead.Id; Type = "Scope" }
+            }
+            $resources += @{ ResourceAppId = $graphSp.AppId; ResourceAccess = $accessList }
+            Update-MgApplication -ApplicationId $app.Id -RequiredResourceAccess $resources
+
+            # ...and grant it tenant-wide, which is what actually makes the
+            # flow work. AllPrincipals so no per-user consent is needed.
+            New-MgOauth2PermissionGrant -BodyParameter @{
+                ClientId = $appSp.Id
+                ConsentType = "AllPrincipals"
+                ResourceId = $graphSp.Id
+                Scope = "User.Read"
+            } | Out-Null
+            Write-Host "  delegated consent: granted User.Read for all principals." -ForegroundColor Green
+        }
+    }
 }
 
 # ---------------------------------------------------------------------------
