@@ -294,3 +294,93 @@ def test_loading_messages_survive_json_escaping(app):
     # The template renders them with |tojson, so this must round-trip.
     assert json.loads(json.dumps(LOADING_MESSAGES)) == LOADING_MESSAGES
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# What's missing
+# ---------------------------------------------------------------------------
+
+class FakeCheck:
+    def __init__(self, check_name, status="fail", display_name=None, summary="x"):
+        self.check_name = check_name
+        self.status = status
+        self.display_name = display_name or check_name
+        self.summary = summary
+
+
+def _with_audit(monkeypatch, checks):
+    """Stand in for the latest audit, so the page needs no real report rows."""
+    import app.routes.simulator as sim
+
+    class FakeReport:
+        def __init__(self, rows):
+            self.checks = rows
+
+    monkeypatch.setattr(
+        "app.services.report_runner.get_latest_report",
+        lambda category, scope=None: FakeReport(checks) if category == "identity" else None)
+    return sim
+
+
+def test_recommendations_needs_traffic_loaded(app):
+    ca_workspace.clear()
+    resp = signed_in_client(app).get("/simulator/recommendations")
+    assert resp.status_code == 200
+    assert b"Load this tenant" in resp.data
+
+
+def test_recommendations_needs_an_audit(app):
+    # Without findings there is nothing to recommend from, and inventing
+    # recommendations would be advice with no evidence behind it.
+    seed_workspace()
+    resp = signed_in_client(app).get("/simulator/recommendations")
+    assert b"No audit has run for this tenant yet" in resp.data
+
+
+def test_recommendations_render_from_audit_findings(app, monkeypatch):
+    seed_workspace()
+    _with_audit(monkeypatch, [FakeCheck("legacy_auth_blocked",
+                                        display_name="Legacy Auth Blocked")])
+    resp = signed_in_client(app).get("/simulator/recommendations")
+    assert resp.status_code == 200
+    assert b"Block legacy authentication" in resp.data
+    assert b"Legacy Auth Blocked" in resp.data
+
+
+def test_a_partial_remedy_is_labelled_partial_in_the_page(app, monkeypatch):
+    seed_workspace()
+    _with_audit(monkeypatch, [FakeCheck("pim_standing_roles",
+                                        display_name="PIM / Standing Roles")])
+    resp = signed_in_client(app).get("/simulator/recommendations")
+    assert b"Partial fix" in resp.data
+    assert b"PIM" in resp.data
+
+
+def test_out_of_scope_findings_appear_with_where_the_fix_lives(app, monkeypatch):
+    seed_workspace()
+    _with_audit(monkeypatch, [FakeCheck("email_authentication",
+                                        display_name="Email Authentication")])
+    resp = signed_in_client(app).get("/simulator/recommendations")
+    assert b"Not fixable with Conditional Access" in resp.data
+    assert b"DNS records" in resp.data
+
+
+def test_the_policy_is_shown_for_manual_deployment(app, monkeypatch):
+    seed_workspace()
+    _with_audit(monkeypatch, [FakeCheck("legacy_auth_blocked")])
+    resp = signed_in_client(app).get("/simulator/recommendations")
+    assert b"Show the policy" in resp.data
+    assert b"never writes to a tenant" in resp.data
+
+
+def test_a_clean_tenant_says_there_is_nothing_to_recommend(app, monkeypatch):
+    seed_workspace()
+    _with_audit(monkeypatch, [FakeCheck("legacy_auth_blocked", status="pass")])
+    resp = signed_in_client(app).get("/simulator/recommendations")
+    assert b"Nothing to recommend" in resp.data
+
+
+def test_simulator_links_to_whats_missing(app):
+    seed_workspace()
+    resp = signed_in_client(app).get("/simulator/")
+    assert b"What&#39;s missing?" in resp.data or b"What's missing?" in resp.data

@@ -14,6 +14,8 @@ from app.services.ca_builder import (APP_GROUP_CHOICES, CLIENT_APP_CHOICES,
                                      RISK_CHOICES, STATE_CHOICES, BuilderError,
                                      build_policy, describe_gaps, export)
 from app.services.ca_impact import assess
+from app.services.ca_recommendations import (out_of_scope, recommend,
+                                             unaddressed)
 from app.services.ca_validation import (crosscheck_applied,
                                         fetch_membership_changes, validate)
 from app.services.graph_client import GraphClient, GraphError
@@ -238,6 +240,54 @@ def export_policy():
     return Response(
         export(draft), mimetype="application/json",
         headers={"Content-Disposition": f'attachment; filename="{safe or "policy"}.json"'})
+
+
+@bp.route("/recommendations", methods=["GET"])
+def recommendations():
+    """What the tenant is missing, and what each fix would cost.
+
+    Joins the audit — which knows what is missing — to the simulator, which
+    knows who would be affected.
+    """
+    from app.services.report_runner import SECURITY_CATEGORIES, get_latest_report
+
+    tenant = get_active_tenant()
+    context = {"tenant": tenant, "recommendations": [], "out_of_scope": [],
+               "unaddressed": [], "error": None, "summary": None,
+               "has_credentials": has_credentials(),
+               "loading_messages": LOADING_MESSAGES}
+
+    if tenant is None:
+        context["error"] = "Select a tenant first."
+        return render_template("simulator/recommendations.html", **context)
+
+    workspace = ca_workspace.get(tenant.tenant_id)
+    if workspace is None:
+        context["error"] = "Load this tenant's sign-in traffic first."
+        return render_template("simulator/recommendations.html", **context)
+    context["summary"] = workspace.summary()
+
+    checks = []
+    for category in SECURITY_CATEGORIES:
+        report = get_latest_report(category, tenant.tenant_id)
+        if report:
+            checks.extend(report.checks)
+
+    if not checks:
+        # Without an audit there is nothing to recommend from, and inventing
+        # recommendations would be advice with no evidence behind it.
+        context["error"] = ("No audit has run for this tenant yet. Run one from "
+                            "the dashboard — the recommendations come from its "
+                            "findings.")
+        return render_template("simulator/recommendations.html", **context)
+
+    found = recommend(checks, workspace.corpus, workspace.memberships,
+                      existing_policies=workspace.policies)
+    context["recommendations"] = [r.as_dict() for r in found]
+    context["drafts"] = {r.remedy_id: export(r.draft) for r in found}
+    context["out_of_scope"] = out_of_scope(checks)
+    context["unaddressed"] = unaddressed(checks)
+    return render_template("simulator/recommendations.html", **context)
 
 
 @bp.route("/agreement", methods=["GET", "POST"])

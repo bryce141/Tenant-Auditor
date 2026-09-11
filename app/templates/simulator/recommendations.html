@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}What's missing — Tenant Auditor{% endblock %}
+
+{% set verdict_style = {
+  'safe':        ('border-emerald-500/30 bg-emerald-500/5', 'text-emerald-300', 'Safe to enable'),
+  'low':         ('border-blue-500/25 bg-blue-500/5',       'text-blue-300',    'Low impact'),
+  'significant': ('border-amber-500/30 bg-amber-500/5',     'text-amber-300',   'Needs a rollout'),
+  'unknown':     ('border-slate-700',                       'text-slate-400',   'Cannot fully assess'),
+} %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto px-6 py-6">
+
+  <div class="mb-5">
+    <a href="{{ url_for('simulator.index') }}" class="text-xs text-slate-500 hover:text-slate-300">&larr; Simulator</a>
+    <h1 class="text-xl font-bold text-slate-100 mt-1">What's missing</h1>
+    <p class="text-sm text-slate-500 mt-1 max-w-3xl">
+      Policies this tenant does not have, taken from its audit findings — each one priced
+      against its own sign-in traffic, so you can see what turning it on would cost before
+      you turn it on.
+    </p>
+  </div>
+
+  {% if error %}
+    <div class="card p-4 mb-5 border-amber-500/30 bg-amber-500/5">
+      <p class="text-sm text-amber-200">{{ error }}</p>
+      {% if 'traffic' in error %}
+        <a href="{{ url_for('simulator.index') }}" class="text-xs text-amber-100 underline mt-1 inline-block">Load it now</a>
+      {% elif 'audit' in error %}
+        <a href="{{ url_for('dashboard.index') }}" class="text-xs text-amber-100 underline mt-1 inline-block">Go to the dashboard</a>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if recommendations %}
+    <p class="text-xs text-slate-600 mb-3">
+      Measured against {{ "{:,}".format(summary.sign_ins) }} sign-ins by
+      {{ summary.distinct_users }} users over the last {{ summary.days }} days. Impact is the
+      <em>difference</em> this policy would make — anyone already covered by an existing
+      policy is not counted.
+    </p>
+
+    <div class="space-y-4 mb-8">
+      {% for r in recommendations %}
+      {% set style = verdict_style.get(r.verdict, verdict_style['unknown']) %}
+      <div class="card p-5 {{ style[0] }}">
+
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <h2 class="text-base font-semibold text-slate-100">{{ r.label }}</h2>
+            <p class="text-xs text-slate-500 mt-1 max-w-2xl">{{ r.why }}</p>
+          </div>
+          <span class="shrink-0 text-[11px] px-2 py-1 rounded-lg border {{ style[0] }} {{ style[1] }}">
+            {{ style[2] }}
+          </span>
+        </div>
+
+        <p class="text-lg font-bold {{ style[1] }} mt-3">{{ r.headline }}</p>
+
+        {% if r.impact and r.impact.new_controls %}
+        <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1">
+          {% for control, counts in r.impact.new_controls.items() %}
+          <span class="text-xs text-slate-400">
+            {{ control }} —
+            <span class="text-slate-300">{{ "{:,}".format(counts.sign_ins) }} sign-ins, {{ counts.users }} users</span>
+          </span>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if r.impact and r.impact.blocked_sign_ins %}
+        <p class="text-xs text-red-300 mt-2">
+          Blocks {{ "{:,}".format(r.impact.blocked_sign_ins) }} sign-ins outright
+          across {{ r.impact.blocked_users }} users.
+        </p>
+        {% endif %}
+
+        {% if r.impact and not r.impact.complete %}
+        <p class="text-xs text-amber-300 mt-2">
+          {{ "{:,}".format(r.impact.unsupported_sign_ins) }} sign-ins could not be evaluated,
+          so the figure above is a lower bound — not a clean bill of health.
+        </p>
+        {% endif %}
+
+        {% if r.partial %}
+        <div class="mt-3 rounded-lg bg-slate-800/60 px-3 py-2">
+          <p class="text-[11px] text-amber-300/90 font-medium">Partial fix</p>
+          <p class="text-[11px] text-slate-400 mt-0.5">{{ r.partial }}</p>
+        </div>
+        {% endif %}
+
+        <div class="mt-3 pt-3 border-t border-slate-800">
+          <p class="text-[11px] text-slate-600 mb-1">Addresses:</p>
+          {% for f in r.findings %}
+          <p class="text-xs">
+            <span class="badge-{{ f.status }} px-1.5 py-0.5 text-[10px]">{{ f.status }}</span>
+            <span class="text-slate-300 ml-1">{{ f.display_name }}</span>
+            <span class="text-slate-600">— {{ f.summary }}</span>
+          </p>
+          {% endfor %}
+        </div>
+
+        <details class="mt-3">
+          <summary class="text-[11px] text-slate-500 cursor-pointer hover:text-slate-300">
+            Show the policy
+          </summary>
+          <pre class="text-[11px] text-slate-400 bg-slate-950 rounded-lg p-3 mt-2 overflow-x-auto max-h-56">{{ drafts[r.remedy_id] }}</pre>
+          <p class="text-[11px] text-slate-600 mt-1.5">
+            Created in report-only. Apply it yourself in the portal or with PowerShell —
+            this tool never writes to a tenant.
+          </p>
+        </details>
+      </div>
+      {% endfor %}
+    </div>
+  {% elif not error %}
+    <div class="card p-6 mb-5 border-emerald-500/20 bg-emerald-500/5">
+      <p class="text-sm text-emerald-300">
+        Nothing to recommend. Every finding a Conditional Access policy could fix is
+        already passing.
+      </p>
+    </div>
+  {% endif %}
+
+  {% if out_of_scope %}
+  <div class="card p-4 mb-4">
+    <p class="text-xs font-semibold text-slate-300 mb-1">Not fixable with Conditional Access</p>
+    <p class="text-[11px] text-slate-600 mb-2.5">
+      Real findings from the same audit. They are listed so the recommendations above do
+      not read as the whole job.
+    </p>
+    {% for f in out_of_scope %}
+    <div class="border-t border-slate-800/60 py-1.5">
+      <p class="text-xs">
+        <span class="badge-{{ f.status }} px-1.5 py-0.5 text-[10px]">{{ f.status }}</span>
+        <span class="text-slate-300 ml-1">{{ f.display_name }}</span>
+      </p>
+      <p class="text-[11px] text-slate-600 ml-1">{{ f.where }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if unaddressed %}
+  <div class="card p-4">
+    <p class="text-xs font-semibold text-slate-300 mb-1">No recommendation for these yet</p>
+    <p class="text-[11px] text-slate-600 mb-2.5">
+      Flagged by the audit, with nothing suggested here. Shown rather than dropped — a page
+      that quietly skipped them would look like a complete answer.
+    </p>
+    {% for f in unaddressed %}
+    <p class="text-xs border-t border-slate-800/60 py-1.5">
+      <span class="badge-{{ f.status }} px-1.5 py-0.5 text-[10px]">{{ f.status }}</span>
+      <span class="text-slate-300 ml-1">{{ f.display_name }}</span>
+      <span class="text-slate-600">— {{ f.summary }}</span>
+    </p>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
