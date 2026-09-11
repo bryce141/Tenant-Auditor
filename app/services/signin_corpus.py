@@ -233,6 +233,12 @@ class ConditionTuple:
     join_type: str              # azureADJoined | hybridAzureADJoined | ... | None
     sign_in_risk_level: str
     user_risk_level: str
+    # Named locations this sign-in fell inside. None means locations were not
+    # resolved at all — the engine reports UNSUPPORTED rather than treating it
+    # as "inside no location", which would be a guess. An empty frozenset is
+    # the different, definite claim that it matched none of them.
+    named_location_ids: frozenset = None
+    in_trusted_location: bool = False
 
     def as_dict(self):
         return {
@@ -245,6 +251,9 @@ class ConditionTuple:
             "join_type": self.join_type,
             "sign_in_risk_level": self.sign_in_risk_level,
             "user_risk_level": self.user_risk_level,
+            "named_location_ids": (None if self.named_location_ids is None
+                                   else sorted(self.named_location_ids)),
+            "in_trusted_location": self.in_trusted_location,
         }
 
 
@@ -415,7 +424,7 @@ def fetch_signins(client, days=30, max_records=None):
 # Reduce
 # ---------------------------------------------------------------------------
 
-def reduce_to_tuples(signins, window_days=30, truncated=False):
+def reduce_to_tuples(signins, window_days=30, truncated=False, locations=None):
     """Collapse raw sign-in records into a Corpus of distinct condition tuples.
 
     Pure: no Graph calls, so the whole reduction is testable against fixtures
@@ -468,6 +477,17 @@ def reduce_to_tuples(signins, window_days=30, truncated=False):
         if signin.get("appliedConditionalAccessPolicies"):
             corpus.ca_data_visible = True
 
+        # Resolved per sign-in, not per tuple: two sign-ins alike in every
+        # other respect but from different offices are genuinely different to a
+        # location-scoped policy, so location membership belongs in the key.
+        location_ids, trusted_location = None, False
+        if locations is not None:
+            match = locations.resolve(signin.get("ipAddress"),
+                                      location.get("countryOrRegion"))
+            location_ids, trusted_location = match.location_ids, match.trusted
+            for reason in match.unsupported:
+                note_unmapped("namedLocations", reason)
+
         conditions = ConditionTuple(
             user_id=signin.get("userId"),
             # resourceId, not appId — CA targets the service being accessed,
@@ -483,6 +503,8 @@ def reduce_to_tuples(signins, window_days=30, truncated=False):
             join_type=join_type,
             sign_in_risk_level=sign_in_risk,
             user_risk_level=user_risk,
+            named_location_ids=location_ids,
+            in_trusted_location=trusted_location,
         )
 
         observation = by_key.get(conditions)
@@ -506,7 +528,21 @@ def reduce_to_tuples(signins, window_days=30, truncated=False):
     return corpus
 
 
-def build_corpus(client, days=30, max_records=None):
+def build_corpus(client, days=30, max_records=None, resolve_locations=True):
     """Fetch and reduce in one step. Raises GraphError like any other Graph call."""
+    from app.services.ca_locations import LocationResolver, fetch_named_locations
+    from app.services.graph_client import GraphError
+
+    locations = None
+    if resolve_locations:
+        try:
+            locations = LocationResolver(fetch_named_locations(client))
+        except GraphError:
+            # Without named locations the corpus is still worth building; the
+            # engine reports location conditions as unevaluable rather than
+            # guessing, which is the same honest answer as before.
+            locations = None
+
     signins, truncated = fetch_signins(client, days=days, max_records=max_records)
-    return reduce_to_tuples(signins, window_days=days, truncated=truncated)
+    return reduce_to_tuples(signins, window_days=days, truncated=truncated,
+                            locations=locations)

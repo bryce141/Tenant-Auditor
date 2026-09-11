@@ -55,6 +55,10 @@ GUESTS_OR_EXTERNAL = "guestsorexternalusers"
 # these are declared unsupported rather than guessed at.
 APP_GROUP_TOKENS = {"office365", "microsoftadminportals"}
 
+# conditionalAccessLocations accepts these alongside named location ids.
+ALL_LOCATIONS = "all"
+ALL_TRUSTED = "alltrusted"
+
 # The portal's "Exchange ActiveSync clients" maps to exchangeActiveSync.
 # easSupported and easUnsupported are older spellings still present on policies
 # created years ago; easUnsupported is deprecated in favour of
@@ -275,11 +279,37 @@ def _match_risk(levels, observed, label):
     return observed in wanted, label
 
 
+def _match_locations(locations, conditions):
+    if not locations:
+        return True, "no location condition"
+
+    include = _lower_set(locations.get("includeLocations"))
+    exclude = _lower_set(locations.get("excludeLocations"))
+
+    if conditions.named_location_ids is None:
+        # Locations were never resolved for this sign-in. Not the same as
+        # "inside no location", which is a definite claim.
+        return None, "locations (named locations not resolved for this sign-in)"
+
+    inside = {str(i).lower() for i in conditions.named_location_ids}
+
+    def hits(selector):
+        if ALL_LOCATIONS in selector:
+            return True
+        if ALL_TRUSTED in selector and conditions.in_trusted_location:
+            return True
+        return bool(inside & selector)
+
+    if hits(exclude):
+        return False, "location is excluded"
+    if not include:
+        return True, "no included locations"
+    return hits(include), "location"
+
+
 def _unsupported_conditions(conditions_block):
     """Conditions present on the policy that this engine does not implement."""
     found = []
-    if conditions_block.get("locations"):
-        found.append("locations (named locations not yet resolved)")
     if conditions_block.get("devices"):
         found.append("devices (device filter)")
     if conditions_block.get("clientApplications"):
@@ -391,6 +421,7 @@ def evaluate(policy, conditions, membership=None):
                     conditions.sign_in_risk_level, "signInRiskLevels"),
         _match_risk(condition_block.get("userRiskLevels"),
                     conditions.user_risk_level, "userRiskLevels"),
+        _match_locations(condition_block.get("locations"), conditions),
     ]
 
     unsupported = [detail for matched, detail in checks if matched is None]

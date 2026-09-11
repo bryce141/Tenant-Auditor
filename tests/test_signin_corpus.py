@@ -67,13 +67,17 @@ def signin(**overrides):
 class FakeClient:
     """Serves pre-baked pages the way Graph paginates them."""
 
-    def __init__(self, pages):
+    def __init__(self, pages, named_locations=None):
         self.pages = pages
+        self.named_locations = named_locations or []
         self.requests = []
 
     def get_one(self, endpoint, params=None, beta=False):
         self.requests.append((endpoint, params))
         return self.pages[len(self.requests) - 1]
+
+    def get_all(self, endpoint, params=None, beta=False):
+        return self.named_locations
 
 
 # ---------------------------------------------------------------------------
