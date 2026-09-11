@@ -78,6 +78,13 @@
         <p class="text-[11px] text-slate-600 mt-2">
           Compared against the policies Entra recorded as applying at real sign-in time
         </p>
+        {% if cross.skipped_config_changed %}
+        <p class="text-[11px] text-slate-600 mt-1">
+          {{ "{:,}".format(cross.skipped_config_changed) }} skipped — the sign-in predates
+          the policy, a location it uses, or a change to the user's group or role membership.
+          Entra evaluated those under a configuration that no longer exists.
+        </p>
+        {% endif %}
       </div>
     </div>
 

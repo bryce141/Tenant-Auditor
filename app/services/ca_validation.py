@@ -40,6 +40,27 @@ disagree *with each other* about whether a policy applied, then some condition
 that matters is missing from the tuple key — the aggregation is lossy and impact
 numbers built on it will be wrong. That shows up as `ambiguous` below, and it is
 a finding about the corpus rather than about the engine.
+
+## Two reasons this check has a ceiling below 100%, both legitimate
+
+**Configuration moves, sign-ins do not.** A policy created today did not exist
+for yesterday's traffic; a named location added today changes what an untouched
+policy does; a user made an admin today was not one when they signed in last
+week. Entra evaluated those sign-ins under a configuration that is gone.
+`skipped_config_changed` counts them, using policy timestamps, named location
+timestamps, and membership changes from the directory audit log — the last
+because a role assignment leaves the policy itself untouched, so nothing else
+can detect it.
+
+**A sign-in can touch more resources than it records.** `resourceId` names one
+resource, but Entra evaluates Conditional Access against service dependencies
+too, so a policy scoped to Exchange can apply to a sign-in the log files under
+Microsoft Graph. Our engine reports those as not applying — and so does
+Microsoft's What If endpoint, asked the same question. The disagreement is
+between the What If model, which evaluates one resource, and production, which
+does not. These are deliberately left visible as disagreements rather than
+explained away: suppressing a mismatch because we have a story for it is how a
+harness stops being evidence.
 """
 import time
 from collections import Counter
@@ -47,6 +68,7 @@ from dataclasses import dataclass, field
 
 from app.services.ca_engine import evaluate
 from app.services.graph_client import GraphError
+from app.services.signin_corpus import _parse_dt
 
 EVALUATE_ENDPOINT = "/identity/conditionalAccess/evaluate"
 
@@ -306,6 +328,10 @@ class CrossCheck:
     disagreements: list = field(default_factory=list)
     skipped_unsupported: int = 0
     skipped_unknown: int = 0
+    # Sign-ins that predate the policy, or a named location it references.
+    # Comparing today's configuration against yesterday's events is not a
+    # disagreement about evaluation; it is a disagreement about when.
+    skipped_config_changed: int = 0
     # Tuples whose own sign-ins disagree about whether a policy applied. A
     # finding about the tuple key, not about the engine: some condition that
     # matters isn't in it.
@@ -326,6 +352,7 @@ class CrossCheck:
             "agreement_rate": None if rate is None else round(rate, 4),
             "skipped_unsupported": self.skipped_unsupported,
             "skipped_unknown": self.skipped_unknown,
+            "skipped_config_changed": self.skipped_config_changed,
             "ambiguous_tuples": len(self.ambiguous),
         }
 
@@ -349,7 +376,106 @@ def _observed_applied(results):
     return None, False
 
 
-def crosscheck_applied(corpus, policies, memberships):
+# Directory audit activities that change whether a user is in a group or role,
+# and therefore whether a membership-scoped policy applies to them.
+MEMBERSHIP_ACTIVITIES = {
+    "add member to role", "remove member from role",
+    "add member to group", "remove member from group",
+    "add eligible member to role", "remove eligible member from role",
+}
+
+
+def fetch_membership_changes(client, days=30):
+    """{user_id: when their group or role membership last changed}.
+
+    A policy scoped to a role applies to whoever held it *at sign-in time*. Make
+    someone an admin today and every sign-in they made yesterday will disagree
+    with our evaluation — correctly, because they were not an admin then. The
+    policy itself is untouched, so its own timestamp cannot detect this; only
+    the audit log can.
+    """
+    from app.utils import utcnow
+    from datetime import timedelta
+
+    since = (utcnow() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        records = client.get_all(
+            "/auditLogs/directoryAudits",
+            params={"$filter": f"activityDateTime ge {since}", "$top": 999})
+    except GraphError:
+        # Without it the cross-check simply behaves as it did before: it may
+        # report drift as disagreement, which is wrong but not silently wrong.
+        return {}
+
+    changes = {}
+    for record in records:
+        activity = (record.get("activityDisplayName") or "").strip().lower()
+        if activity not in MEMBERSHIP_ACTIVITIES:
+            continue
+        when = _parse_dt(record.get("activityDateTime"))
+        if not when:
+            continue
+        for target in record.get("targetResources") or []:
+            target_id = target.get("id")
+            if not target_id:
+                continue
+            if target_id not in changes or when > changes[target_id]:
+                changes[target_id] = when
+    return changes
+
+
+def _depends_on_membership(policy):
+    """Whether this policy's answer can change when a user's membership does."""
+    users = ((policy.get("conditions") or {}).get("users") or {})
+    if users.get("includeGroups") or users.get("excludeGroups"):
+        return True
+    if users.get("includeRoles") or users.get("excludeRoles"):
+        return True
+    tokens = {str(v).lower() for v in
+              (users.get("includeUsers") or []) + (users.get("excludeUsers") or [])}
+    return "guestsorexternalusers" in tokens
+
+
+def _effective_since(policy, locations_by_id):
+    """When this policy last became the thing we are evaluating.
+
+    The later of the policy's own modification and the creation or modification
+    of any named location it references — changing a location silently changes
+    what the policy does, without touching the policy.
+
+    Returns None when nothing is datable, in which case the comparison proceeds
+    as before rather than being skipped on a guess.
+    """
+    stamps = []
+    for key in ("modifiedDateTime", "createdDateTime"):
+        parsed = _parse_dt(policy.get(key))
+        if parsed:
+            stamps.append(parsed)
+
+    conditions = policy.get("conditions") or {}
+    locations = conditions.get("locations") or {}
+    referenced = list(locations.get("includeLocations") or [])
+    referenced += list(locations.get("excludeLocations") or [])
+    for ref in referenced:
+        key = str(ref).lower()
+        if key in ("all", "alltrusted"):
+            # AllTrusted depends on every trusted location in the tenant, so
+            # any of them appearing changes the answer.
+            for loc in locations_by_id.values():
+                if loc.get("isTrusted"):
+                    stamps += [d for d in (_parse_dt(loc.get("modifiedDateTime")),
+                                           _parse_dt(loc.get("createdDateTime"))) if d]
+            continue
+        loc = locations_by_id.get(key)
+        if loc:
+            stamps += [d for d in (_parse_dt(loc.get("modifiedDateTime")),
+                                   _parse_dt(loc.get("createdDateTime"))) if d]
+
+    return max(stamps) if stamps else None
+
+
+def crosscheck_applied(corpus, policies, memberships, named_locations=(),
+                       membership_changes=None):
     """Compare engine verdicts against what really happened at sign-in time.
 
     Pure — no Graph calls. The data was already captured into the corpus by
@@ -358,6 +484,11 @@ def crosscheck_applied(corpus, policies, memberships):
     """
     check = CrossCheck()
     by_id = {p.get("id"): p for p in policies}
+    locations_by_id = {str(loc.get("id")).lower(): loc
+                       for loc in (named_locations or []) if loc.get("id")}
+    effective = {p.get("id"): _effective_since(p, locations_by_id) for p in policies}
+    membership_changes = membership_changes or {}
+    membership_scoped = {p.get("id"): _depends_on_membership(p) for p in policies}
 
     for observation in corpus.observations:
         conditions = observation.conditions
@@ -367,6 +498,20 @@ def crosscheck_applied(corpus, policies, memberships):
             policy = by_id.get(policy_id)
             if policy is None:
                 continue  # policy deleted or created since the sign-in
+
+            # A sign-in that predates the policy — or a named location it
+            # depends on — was evaluated by Entra under a different
+            # configuration than the one being checked. Counting that as a
+            # disagreement blames the engine for the passage of time.
+            since = effective.get(policy_id)
+            if membership_scoped.get(policy_id):
+                # The user's own group or role membership may have moved since.
+                changed = membership_changes.get(conditions.user_id)
+                if changed and (since is None or changed > since):
+                    since = changed
+            if since and observation.last_seen and observation.last_seen < since:
+                check.skipped_config_changed += 1
+                continue
 
             observed, ambiguous = _observed_applied(results)
             if ambiguous:

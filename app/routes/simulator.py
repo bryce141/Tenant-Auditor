@@ -14,7 +14,8 @@ from app.services.ca_builder import (APP_GROUP_CHOICES, CLIENT_APP_CHOICES,
                                      RISK_CHOICES, STATE_CHOICES, BuilderError,
                                      build_policy, describe_gaps, export)
 from app.services.ca_impact import assess
-from app.services.ca_validation import crosscheck_applied, validate
+from app.services.ca_validation import (crosscheck_applied,
+                                        fetch_membership_changes, validate)
 from app.services.graph_client import GraphClient, GraphError
 
 bp = Blueprint("simulator", __name__, url_prefix="/simulator")
@@ -273,7 +274,10 @@ def agreement():
             report = validate(client, workspace.corpus, workspace.policies,
                               workspace.memberships, max_tuples=max_tuples)
             cross = crosscheck_applied(workspace.corpus, workspace.policies,
-                                       workspace.memberships)
+                                       workspace.memberships,
+                                       named_locations=workspace.named_locations,
+                                       membership_changes=fetch_membership_changes(
+                                           client, days=workspace.days))
         except GraphError as e:
             context["error"] = str(e)
             return render_template("simulator/agreement.html", **context)

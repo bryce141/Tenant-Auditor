@@ -245,7 +245,8 @@ def ca_validate_command(tenant, days, max_records, max_tuples, show):
     """
     from app.auth.graph_auth import get_headers
     from app.services.ca_memberships import MembershipCache, resolve_for_corpus
-    from app.services.ca_validation import crosscheck_applied, validate
+    from app.services.ca_validation import (crosscheck_applied,
+                                        fetch_membership_changes, validate)
     from app.services.graph_client import GraphClient, GraphError
     from app.services.signin_corpus import build_corpus
 
@@ -318,12 +319,21 @@ def ca_validate_command(tenant, days, max_records, max_tuples, show):
                 click.echo(f"      they said applies={d.theirs} ({d.their_reason})")
                 click.echo(f"      {d.sign_ins:,} sign-ins: {d.conditions}")
 
-        cross = crosscheck_applied(corpus, policies, memberships)
+        try:
+            named_locations = client.get_all("/identity/conditionalAccess/namedLocations")
+        except GraphError:
+            named_locations = []
+        cross = crosscheck_applied(
+            corpus, policies, memberships, named_locations=named_locations,
+            membership_changes=fetch_membership_changes(client, days=days))
         cs = cross.summary()
         click.echo("\n  Against what the tenant actually did (sign-in log)")
         click.echo(f"    comparisons       {cs['comparisons']:,}")
         click.echo(f"    agreements        {cs['agreements']:,}")
         click.echo(f"    disagreements     {cs['disagreements']:,}")
+        if cs.get("skipped_config_changed"):
+            click.echo(f"    skipped           {cs['skipped_config_changed']:,} "
+                       "(sign-in predates the policy or a location it uses)")
         if cs["agreement_rate"] is not None:
             click.echo(f"    agreement rate    {cs['agreement_rate'] * 100:.2f}%")
         if cross.disagreements:

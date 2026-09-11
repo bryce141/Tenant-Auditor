@@ -392,3 +392,75 @@ def test_reports_are_json_serialisable():
     report = validate(client, corpus, [policy()], Memberships())
     json.dumps(report.summary())
     json.dumps(crosscheck_applied(corpus, [policy()], Memberships()).summary())
+
+
+# ---------------------------------------------------------------------------
+# Configuration that changed after the sign-in
+# ---------------------------------------------------------------------------
+
+def dated_policy(created="2026-01-01T00:00:00Z", modified=None, **overrides):
+    p = policy(**overrides)
+    p["createdDateTime"] = created
+    if modified:
+        p["modifiedDateTime"] = modified
+    return p
+
+
+def test_a_sign_in_predating_the_policy_is_skipped_not_disagreed():
+    # Entra evaluated that sign-in under a configuration that no longer exists.
+    # Counting it as a disagreement blames the engine for the passage of time.
+    corpus = corpus_of(signin(createdDateTime="2026-01-01T00:00:00Z",
+                              appliedConditionalAccessPolicies=[
+                                  applied(result="notApplied")]))
+    later = dated_policy(created="2026-06-01T00:00:00Z")
+    check = crosscheck_applied(corpus, [later], Memberships())
+    assert check.comparisons == 0
+    assert check.disagreements == []
+    assert check.skipped_config_changed == 1
+
+
+def test_a_sign_in_after_the_policy_is_still_compared():
+    corpus = corpus_of(signin(createdDateTime="2026-09-01T00:00:00Z",
+                              appliedConditionalAccessPolicies=[applied()]))
+    check = crosscheck_applied(corpus, [dated_policy()], Memberships())
+    assert check.comparisons == 1
+    assert check.agreements == 1
+
+
+def test_a_named_location_created_after_the_sign_in_also_skips():
+    # Changing a location silently changes what a policy does without touching
+    # the policy — so the policy's own timestamp is not enough.
+    corpus = corpus_of(signin(createdDateTime="2026-06-15T00:00:00Z",
+                              appliedConditionalAccessPolicies=[applied()]))
+    scoped = dated_policy(created="2026-01-01T00:00:00Z",
+                          locations={"includeLocations": ["All"],
+                                     "excludeLocations": ["loc-1"]})
+    locations = [{"id": "loc-1", "displayName": "HQ", "isTrusted": True,
+                  "createdDateTime": "2026-09-01T00:00:00Z"}]
+    check = crosscheck_applied(corpus, [scoped], Memberships(),
+                               named_locations=locations)
+    assert check.skipped_config_changed == 1
+    assert check.comparisons == 0
+
+
+def test_all_trusted_depends_on_every_trusted_location():
+    # AllTrusted is not an id, so the policy depends on any trusted location
+    # in the tenant appearing at all.
+    corpus = corpus_of(signin(createdDateTime="2026-06-15T00:00:00Z",
+                              appliedConditionalAccessPolicies=[applied()]))
+    scoped = dated_policy(created="2026-01-01T00:00:00Z",
+                          locations={"includeLocations": ["All"],
+                                     "excludeLocations": ["AllTrusted"]})
+    locations = [{"id": "loc-9", "displayName": "New HQ", "isTrusted": True,
+                  "createdDateTime": "2026-09-01T00:00:00Z"}]
+    check = crosscheck_applied(corpus, [scoped], Memberships(),
+                               named_locations=locations)
+    assert check.skipped_config_changed == 1
+
+
+def test_an_undated_policy_is_compared_rather_than_skipped():
+    # Skipping on a guess would quietly shrink the check to nothing.
+    corpus = corpus_of(signin(appliedConditionalAccessPolicies=[applied()]))
+    check = crosscheck_applied(corpus, [policy()], Memberships())
+    assert check.comparisons == 1
+    assert check.skipped_config_changed == 0
