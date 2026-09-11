@@ -210,9 +210,22 @@ class ConditionTuple:
     them: both are a function of `user_id`, which is already in the key, so
     resolving them separately and joining on user adds no tuples. IP is absent
     for the opposite reason — see build_corpus.
+
+    **`resource_id`, not `appId`.** A sign-in record carries both: `appId` is
+    the client the user signed in *from* (Outlook, a browser, "Graph explorer"),
+    and `resourceId` is the service they signed in *to*. Conditional Access
+    targets the resource — "Conditional Access applies to resources not
+    clients… a policy set on SharePoint service applies to all clients calling
+    SharePoint". Keying on `appId` would compare a policy's cloud-app list
+    against client GUIDs it can never contain, so every app-scoped policy would
+    match nothing and be reported as affecting nobody.
+
+    The client app is kept on the Observation for diagnostics, but it is not
+    part of the key: which client was used is already captured, in the form CA
+    actually tests, by `client_app_type`.
     """
     user_id: str
-    app_id: str
+    resource_id: str            # the service being accessed — what CA targets
     client_app_type: str        # conditionalAccessClientApp, or None
     device_platform: str        # conditionalAccessDevicePlatform, or None
     country: str                # ISO country code, or None
@@ -224,7 +237,7 @@ class ConditionTuple:
     def as_dict(self):
         return {
             "user_id": self.user_id,
-            "app_id": self.app_id,
+            "resource_id": self.resource_id,
             "client_app_type": self.client_app_type,
             "device_platform": self.device_platform,
             "country": self.country,
@@ -243,7 +256,11 @@ class Observation:
     ip_addresses: set = field(default_factory=set)
     ips_truncated: bool = False
     user_principal_name: str = None
-    app_display_name: str = None
+    resource_display_name: str = None
+    # The clients seen reaching this resource. Not part of the key — CA tests
+    # the client through clientAppTypes, not by id — but useful when a human
+    # asks "what is actually hitting Exchange from a legacy protocol".
+    client_apps: set = field(default_factory=set)
     first_seen: datetime = None
     last_seen: datetime = None
     # policy id -> {result: count}, straight from appliedConditionalAccessPolicies.
@@ -259,7 +276,11 @@ class Observation:
             elif ip not in self.ip_addresses:
                 self.ips_truncated = True
         self.user_principal_name = self.user_principal_name or signin.get("userPrincipalName")
-        self.app_display_name = self.app_display_name or signin.get("appDisplayName")
+        self.resource_display_name = (self.resource_display_name
+                                      or signin.get("resourceDisplayName"))
+        client_app = signin.get("appDisplayName") or signin.get("appId")
+        if client_app:
+            self.client_apps.add(client_app)
         if when:
             if self.first_seen is None or when < self.first_seen:
                 self.first_seen = when
@@ -279,7 +300,8 @@ class Observation:
             "ip_addresses": sorted(self.ip_addresses),
             "ips_truncated": self.ips_truncated,
             "user_principal_name": self.user_principal_name,
-            "app_display_name": self.app_display_name,
+            "resource_display_name": self.resource_display_name,
+            "client_apps": sorted(self.client_apps),
             "first_seen": self.first_seen.isoformat() if self.first_seen else None,
             "last_seen": self.last_seen.isoformat() if self.last_seen else None,
             "applied_policies": {pid: dict(results)
@@ -448,7 +470,9 @@ def reduce_to_tuples(signins, window_days=30, truncated=False):
 
         conditions = ConditionTuple(
             user_id=signin.get("userId"),
-            app_id=signin.get("appId"),
+            # resourceId, not appId — CA targets the service being accessed,
+            # not the client accessing it. See ConditionTuple.
+            resource_id=signin.get("resourceId"),
             client_app_type=client_app,
             device_platform=platform,
             country=location.get("countryOrRegion") or None,

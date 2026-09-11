@@ -198,17 +198,25 @@ def _match_applications(applications, conditions):
         # would silently under-report a policy that covers most of the tenant.
         return None, "applications (Office365/MicrosoftAdminPortals not expanded)"
 
-    app_id = (conditions.app_id or "").lower()
-    if not app_id:
-        return None, "applications (sign-in reported no appId)"
+    # The resource being accessed, not the client accessing it: "Conditional
+    # Access applies to resources not clients… a policy set on SharePoint
+    # service applies to all clients calling SharePoint."
+    #
+    # Known limitation, and it under-reports rather than over-reports: a
+    # confidential client that requests an ID token is *also* matched by a
+    # policy targeting that client. The sign-in log doesn't say whether an ID
+    # token was requested, so those applications are missed here.
+    resource_id = (conditions.resource_id or "").lower()
+    if not resource_id:
+        return None, "applications (sign-in reported no resourceId)"
 
-    if app_id in exclude:
-        return False, "application is excluded"
+    if resource_id in exclude:
+        return False, "resource is excluded"
     if NO_USERS in include:
         return False, "policy targets no applications"
-    if ALL_USERS in include or app_id in include:
-        return True, "application is in scope"
-    return False, "application is not in scope"
+    if ALL_USERS in include or resource_id in include:
+        return True, "resource is in scope"
+    return False, "resource is not in scope"
 
 
 def _match_client_app_types(client_app_types, conditions):

@@ -85,8 +85,11 @@ def build_evaluate_request(conditions, ip_address=None, applied_policies_only=Fa
     body = {
         "signInIdentity": {"@odata.type": "#microsoft.graph.userSignIn",
                            "userId": conditions.user_id},
+        # The resource, matching what CA targets and what our engine compares
+        # against. Sending the client appId here would ask Microsoft about a
+        # different sign-in than the one observed.
         "signInContext": {"@odata.type": "#microsoft.graph.applicationContext",
-                          "includeApplications": [conditions.app_id]},
+                          "includeApplications": [conditions.resource_id]},
         "appliedPoliciesOnly": applied_policies_only,
     }
 

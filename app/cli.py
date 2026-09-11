@@ -217,7 +217,7 @@ def ca_corpus_command(tenant, days, max_records, show):
             for o in corpus.observations[:show]:
                 c = o.conditions
                 click.echo(f"    {o.sign_ins:>6,}  {(o.user_principal_name or c.user_id or '?')[:32]:<32} "
-                           f"{(o.app_display_name or c.app_id or '?')[:26]:<26} "
+                           f"{(o.resource_display_name or c.resource_id or '?')[:26]:<26} "
                            f"{c.client_app_type or '-':<26} {c.device_platform or '-':<12} "
                            f"{c.country or '-'}")
 

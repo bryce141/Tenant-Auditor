@@ -39,6 +39,7 @@ def signin(**overrides):
         "riskLevelDuringSignIn": "none",
         "riskState": "none",
         "resourceId": "00000003-0000-0000-c000-000000000000",
+        "resourceDisplayName": "Microsoft Graph",
         "status": {"errorCode": 0, "failureReason": None},
         "deviceDetail": {
             "deviceId": "",
@@ -188,6 +189,50 @@ def test_identical_conditions_collapse_to_one_tuple():
     assert corpus.observations[0].sign_ins == 3
     assert corpus.total_sign_ins == 3
     assert corpus.reduction_ratio == 3.0
+
+
+def test_tuple_keys_on_the_resource_not_the_client_app():
+    # The bug this pins: a sign-in record carries both, and they are different
+    # GUIDs. `appId` is the client signed in FROM (the docs' own example is
+    # "Graph explorer"); `resourceId` is the service signed in TO ("Microsoft
+    # Graph"). Conditional Access targets resources, not clients — "a policy
+    # set on SharePoint service applies to all clients calling SharePoint".
+    # Keying on appId compares a policy's cloud-app list against client GUIDs
+    # it can never contain, so every app-scoped policy matches nothing and
+    # reports as affecting nobody.
+    corpus = reduce_to_tuples([signin(
+        appId="de8bc8b5-d9f9-48b1-a8ad-b748da725064",
+        appDisplayName="Graph explorer",
+        resourceId="00000003-0000-0000-c000-000000000000",
+        resourceDisplayName="Microsoft Graph")])
+    conditions = corpus.observations[0].conditions
+    assert conditions.resource_id == "00000003-0000-0000-c000-000000000000"
+    assert not hasattr(conditions, "app_id")
+
+
+def test_different_clients_reaching_one_resource_are_one_tuple():
+    # Outlook and a browser both hitting Exchange are the same thing to a
+    # policy scoped to Exchange. Splitting them would inflate the tuple count
+    # with distinctions CA never makes.
+    corpus = reduce_to_tuples([
+        signin(appDisplayName="Outlook", resourceId="exchange"),
+        signin(appDisplayName="Browser", resourceId="exchange"),
+    ])
+    assert len(corpus.observations) == 1
+    assert corpus.observations[0].client_apps == {"Outlook", "Browser"}
+
+
+def test_one_client_reaching_different_resources_splits():
+    corpus = reduce_to_tuples([
+        signin(appDisplayName="Outlook", resourceId="exchange"),
+        signin(appDisplayName="Outlook", resourceId="sharepoint"),
+    ])
+    assert len(corpus.observations) == 2
+
+
+def test_resource_display_name_is_retained_for_reporting():
+    corpus = reduce_to_tuples([signin()])
+    assert corpus.observations[0].resource_display_name == "Microsoft Graph"
 
 
 def test_differing_country_splits_the_tuple():

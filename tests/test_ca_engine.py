@@ -30,7 +30,7 @@ EXCHANGE_ONLINE = "00000002-0000-0ff1-ce00-000000000000"
 
 
 def conditions(**overrides):
-    base = dict(user_id="u1", app_id=EXCHANGE_ONLINE, client_app_type="browser",
+    base = dict(user_id="u1", resource_id=EXCHANGE_ONLINE, client_app_type="browser",
                 device_platform="windows", country="US", is_compliant=None,
                 join_type=None, sign_in_risk_level="none", user_risk_level="none")
     base.update(overrides)
@@ -202,17 +202,38 @@ def test_all_applications_matches_any_app():
                     conditions(), member()).applies is True
 
 
+def test_application_condition_matches_the_resource_not_the_client():
+    # "Conditional Access applies to resources not clients… Conditional Access
+    # policies don't apply to public clients themselves but are based on the
+    # resources they request." A policy listing Exchange must match a sign-in
+    # whose resource is Exchange, whatever client was used to get there.
+    apps = {"includeApplications": [EXCHANGE_ONLINE]}
+    assert evaluate(policy(applications=apps),
+                    conditions(resource_id=EXCHANGE_ONLINE, client_app_type="mobileAppsAndDesktopClients"),
+                    member()).applies is True
+    assert evaluate(policy(applications=apps),
+                    conditions(resource_id=EXCHANGE_ONLINE, client_app_type="browser"),
+                    member()).applies is True
+
+
+def test_missing_resource_is_unsupported_not_a_non_match():
+    e = evaluate(policy(applications={"includeApplications": [EXCHANGE_ONLINE]}),
+                 conditions(resource_id=None), member())
+    assert e.applies is None
+    assert "resourceId" in " ".join(e.unsupported_conditions)
+
+
 def test_specific_application_matches_and_misses():
     apps = {"includeApplications": [EXCHANGE_ONLINE]}
     assert evaluate(policy(applications=apps),
-                    conditions(app_id=EXCHANGE_ONLINE), member()).applies is True
+                    conditions(resource_id=EXCHANGE_ONLINE), member()).applies is True
     assert evaluate(policy(applications=apps),
-                    conditions(app_id="some-other-app"), member()).applies is False
+                    conditions(resource_id="some-other-app"), member()).applies is False
 
 
 def test_application_exclusion_beats_inclusion():
     apps = {"includeApplications": ["All"], "excludeApplications": [EXCHANGE_ONLINE]}
-    e = evaluate(policy(applications=apps), conditions(app_id=EXCHANGE_ONLINE),
+    e = evaluate(policy(applications=apps), conditions(resource_id=EXCHANGE_ONLINE),
                  member())
     assert e.applies is False
 
@@ -351,7 +372,7 @@ def test_a_definite_non_match_beats_an_unsupported_condition():
     # rather than giving up is what keeps coverage high without guessing.
     p = policy(applications={"includeApplications": ["some-other-app"]},
                locations={"includeLocations": ["All"]})
-    e = evaluate(p, conditions(app_id=EXCHANGE_ONLINE), member())
+    e = evaluate(p, conditions(resource_id=EXCHANGE_ONLINE), member())
     assert e.applies is False
     assert e.result == NOT_APPLICABLE
 

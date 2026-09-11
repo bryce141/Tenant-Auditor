@@ -25,7 +25,7 @@ EXCHANGE_ONLINE = "00000002-0000-0ff1-ce00-000000000000"
 
 
 def conditions(**overrides):
-    base = dict(user_id="u1", app_id=EXCHANGE_ONLINE, client_app_type="browser",
+    base = dict(user_id="u1", resource_id=EXCHANGE_ONLINE, client_app_type="browser",
                 device_platform="windows", country="US", is_compliant=None,
                 join_type=None, sign_in_risk_level="none", user_risk_level="none")
     base.update(overrides)
@@ -118,6 +118,14 @@ def test_compliance_is_sent_only_when_the_log_reported_it():
     for state in (True, False):
         body = build_evaluate_request(conditions(is_compliant=state))
         assert body["signInConditions"]["deviceInfo"] == {"isCompliant": state}
+
+
+def test_request_sends_the_resource_not_the_client_app():
+    # signInContext.includeApplications is the resource CA targets. Sending the
+    # client appId would ask Microsoft about a different sign-in than the one
+    # observed, and every app-scoped policy would come back as non-applicable.
+    body = build_evaluate_request(conditions(resource_id=EXCHANGE_ONLINE))
+    assert body["signInContext"]["includeApplications"] == [EXCHANGE_ONLINE]
 
 
 def test_all_policies_are_requested_not_only_applicable_ones():
