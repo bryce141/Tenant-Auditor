@@ -52,6 +52,11 @@
 <script>
   (function () {
     var MESSAGES = {{ loading_messages | tojson }};
+
+    // Long enough to actually read the line and register the joke. The 300ms
+    // fade below comes out of this, so the readable time is a little less than
+    // the interval.
+    var MESSAGE_INTERVAL_MS = 4100;
     var overlay = document.getElementById('loading-overlay');
     var title = document.getElementById('loading-title');
     var message = document.getElementById('loading-message');
@@ -84,7 +89,7 @@
       cursor = 1;
       message.style.opacity = '1';
       overlay.classList.remove('hidden');
-      timer = setInterval(nextMessage, 2600);
+      timer = setInterval(nextMessage, MESSAGE_INTERVAL_MS);
     }
 
     document.querySelectorAll('form[data-loading]').forEach(function (form) {
