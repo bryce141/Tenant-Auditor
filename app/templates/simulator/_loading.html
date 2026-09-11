@@ -1,0 +1,109 @@
+{# Loading overlay for the slow operations.
+
+   Loading traffic makes a sign-in log pull, a service principal enumeration, a
+   named location fetch and a batched membership lookup per distinct user; the
+   agreement check makes one API call per condition set. Both are slow enough
+   that an unchanged page reads as a hang, and the first instinct is to click
+   the button again — which starts the whole thing over.
+
+   Any form marked data-loading="…" gets the overlay on submit. #}
+
+<div id="loading-overlay"
+     class="hidden fixed inset-0 z-50 bg-slate-950/92 backdrop-blur-sm items-center justify-center">
+  <div class="text-center px-6 max-w-lg">
+    <div class="loading-ring mx-auto mb-6"></div>
+    <p id="loading-title" class="text-base font-semibold text-slate-200">Working…</p>
+    <p id="loading-message"
+       class="text-sm text-blue-300/90 mt-2 h-5 transition-opacity duration-300">&nbsp;</p>
+    <div class="loading-bar mt-6 mx-auto"></div>
+    <p class="text-[11px] text-slate-600 mt-5" id="loading-note"></p>
+  </div>
+</div>
+
+<style>
+  #loading-overlay:not(.hidden) { display: flex; }
+
+  .loading-ring {
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 3px solid rgba(59,130,246,0.15);
+    border-top-color: #3b82f6;
+    animation: loading-spin 0.9s linear infinite;
+  }
+  @keyframes loading-spin { to { transform: rotate(360deg); } }
+
+  /* Indeterminate, because the work has no honest percentage — a fake
+     progress bar that stalls at 90% is worse than none. */
+  .loading-bar {
+    width: 220px; height: 3px; border-radius: 3px;
+    background: rgba(51,65,85,0.6); overflow: hidden; position: relative;
+  }
+  .loading-bar::after {
+    content: ''; position: absolute; inset: 0;
+    width: 40%; border-radius: 3px;
+    background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+    animation: loading-sweep 1.4s ease-in-out infinite;
+  }
+  @keyframes loading-sweep {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+  }
+</style>
+
+<script>
+  (function () {
+    var MESSAGES = {{ loading_messages | tojson }};
+    var overlay = document.getElementById('loading-overlay');
+    var title = document.getElementById('loading-title');
+    var message = document.getElementById('loading-message');
+    var note = document.getElementById('loading-note');
+    var timer = null;
+
+    // Shuffle once so a second run does not replay the same sequence, then
+    // walk it in order so nothing repeats until the list is exhausted.
+    var order = MESSAGES.slice();
+    for (var i = order.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+    }
+    var cursor = 0;
+
+    function nextMessage() {
+      message.style.opacity = '0';
+      setTimeout(function () {
+        message.textContent = order[cursor % order.length];
+        cursor++;
+        message.style.opacity = '1';
+      }, 300);
+    }
+
+    function start(label, hint) {
+      title.textContent = label || 'Working…';
+      note.textContent = hint || '';
+      cursor = 0;
+      message.textContent = order[0];
+      cursor = 1;
+      message.style.opacity = '1';
+      overlay.classList.remove('hidden');
+      timer = setInterval(nextMessage, 2600);
+    }
+
+    document.querySelectorAll('form[data-loading]').forEach(function (form) {
+      form.addEventListener('submit', function () {
+        // Guard against a double submit restarting the whole fetch.
+        form.querySelectorAll('button[type="submit"]').forEach(function (b) {
+          b.disabled = true;
+        });
+        start(form.dataset.loading, form.dataset.loadingNote);
+      });
+    });
+
+    // Returning via the back button leaves a cached page with the overlay
+    // still up and the button still disabled.
+    window.addEventListener('pageshow', function () {
+      if (timer) { clearInterval(timer); timer = null; }
+      overlay.classList.add('hidden');
+      document.querySelectorAll('form[data-loading] button[type="submit"]')
+        .forEach(function (b) { b.disabled = false; });
+    });
+  })();
+</script>

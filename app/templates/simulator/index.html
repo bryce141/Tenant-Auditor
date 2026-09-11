@@ -2,6 +2,7 @@
 {% block title %}CA Simulator — Tenant Auditor{% endblock %}
 
 {% block scripts %}
+{% include 'simulator/_loading.html' %}
 <script>
   // "All users" and "All resources" override the include/exclude lists
   // entirely. Leaving those controls live invites you to fill them in and
@@ -93,7 +94,9 @@
         membership of everyone who appears in it. This takes a moment, and is reused
         for every draft afterwards.
       </p>
-      <form method="post" action="{{ url_for('simulator.build') }}" class="flex items-end gap-3">
+      <form method="post" action="{{ url_for('simulator.build') }}" class="flex items-end gap-3"
+            data-loading="Loading sign-in traffic"
+            data-loading-note="Pulling the sign-in log, resolving group and role membership, and reading named locations. This can take a minute on a busy tenant.">
         <div>
           <label class="block text-xs font-medium text-slate-400 mb-1">Window</label>
           <select name="days" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
@@ -130,7 +133,9 @@
           <span class="ml-1.5 font-semibold text-slate-200">{{ summary.policies }}</span>
         </div>
       </div>
-      <form method="post" action="{{ url_for('simulator.build') }}" class="flex items-center gap-2">
+      <form method="post" action="{{ url_for('simulator.build') }}" class="flex items-center gap-2"
+            data-loading="Reloading sign-in traffic"
+            data-loading-note="Fetching everything again from Graph.">
         <input type="hidden" name="days" value="{{ summary.days }}">
         <input type="hidden" name="force" value="1">
         <span class="text-xs text-slate-600">

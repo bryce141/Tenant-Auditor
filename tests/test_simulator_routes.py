@@ -253,3 +253,44 @@ def test_a_narrow_draft_is_not_flagged(app):
     assert b"affects essentially all observed traffic" not in resp.data
     # Half the corpus, so the draft is doing something without doing everything.
     assert b"5 sign-ins across 1 user would be affected" in resp.data
+
+
+def test_loading_overlay_is_present_on_the_slow_forms(app):
+    # Loading traffic makes a dozen Graph calls; without feedback the page
+    # reads as a hang and the natural response is to click again, which starts
+    # the whole fetch over.
+    client = signed_in_client(app)
+    resp = client.get("/simulator/")
+    assert b'data-loading="Loading sign-in traffic"' in resp.data
+    assert b"loading-overlay" in resp.data
+
+
+def test_agreement_page_has_a_loading_overlay(app):
+    seed_workspace()
+    resp = signed_in_client(app).get("/simulator/agreement")
+    assert b'data-loading="Checking against Microsoft"' in resp.data
+
+
+def test_loading_messages_reach_the_page(app):
+    from app.routes.simulator import LOADING_MESSAGES
+
+    resp = signed_in_client(app).get("/simulator/")
+    assert b"reticulating splines" in resp.data
+    assert len(LOADING_MESSAGES) == len(set(LOADING_MESSAGES))
+
+
+def test_loading_messages_survive_json_escaping(app):
+    # Several contain apostrophes and parentheses; a broken escape takes the
+    # whole script block down and the overlay silently never appears.
+    import json
+
+    from app.routes.simulator import LOADING_MESSAGES
+
+    resp = signed_in_client(app).get("/simulator/")
+    for message in ["rm -rf'ing doubts",
+                    "warming up the cloud (it's chilly up there)",
+                    "consulting the ancient scrolls (man pages)"]:
+        assert message in LOADING_MESSAGES
+    # The template renders them with |tojson, so this must round-trip.
+    assert json.loads(json.dumps(LOADING_MESSAGES)) == LOADING_MESSAGES
+    assert resp.status_code == 200

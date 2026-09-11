@@ -21,6 +21,42 @@ bp = Blueprint("simulator", __name__, url_prefix="/simulator")
 
 DEFAULT_DAYS = 30
 
+# Shown while traffic loads or the agreement check runs. Both are slow enough
+# that an unchanged page reads as a hang.
+LOADING_MESSAGES = [
+    "convincing packets to move faster",
+    "stealing bandwidth from the neighbors",
+    "reticulating splines",
+    "asking stackoverflow for help",
+    "blaming DNS",
+    "negotiating with the firewall",
+    "rm -rf'ing doubts",
+    "gaslighting the load balancer",
+    "bribing the scheduler for more CPU time",
+    "telling the server it's doing a great job",
+    "deploying to prod on a Friday",
+    "closing 47 chrome tabs to free up RAM",
+    "pretending to read the logs",
+    "asking ChatGPT what went wrong",
+    "git push --force and praying",
+    "turning it off and back on again",
+    "blaming the intern",
+    "adding more semicolons just in case",
+    "checking if it works on my machine",
+    "waiting for DNS to propagate (could be days)",
+    "sudo make it work",
+    "yelling at YAML indentation",
+    "hoping nobody checks the commit history",
+    "establishing a TCP handshake... it left me on read",
+    "defragmenting the vibe",
+    "running traceroute to find out who hurt you",
+    "escalating privileges and expectations",
+    "rebuilding node_modules for the 47th time",
+    "warming up the cloud (it's chilly up there)",
+    "performing mass unscheduled certificate rotation",
+    "consulting the ancient scrolls (man pages)",
+]
+
 
 def _client(tenant):
     """A Graph client, or None if credentials are unusable.
@@ -92,6 +128,7 @@ def _render(tenant, workspace=None, client=None, error=None, impact=None,
         state_choices=STATE_CHOICES,
         gaps=describe_gaps(),
         presets=PRESETS,
+        loading_messages=LOADING_MESSAGES,
         error=error,
         impact=impact.summary() if impact else None,
         draft_json=export(draft) if draft else None,
@@ -212,7 +249,8 @@ def agreement():
     """
     tenant = get_active_tenant()
     context = {"tenant": tenant, "report": None, "cross": None, "error": None,
-               "summary": None, "has_credentials": has_credentials()}
+               "summary": None, "has_credentials": has_credentials(),
+               "loading_messages": LOADING_MESSAGES}
 
     if tenant is None:
         context["error"] = "Select a tenant first."

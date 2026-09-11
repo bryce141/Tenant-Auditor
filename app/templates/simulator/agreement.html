@@ -33,7 +33,9 @@
         sets go first, so a capped run still covers most real traffic. This makes one API call
         per condition set, so it is slower than a simulation.
       </p>
-      <form method="post" class="flex items-end gap-3">
+      <form method="post" class="flex items-end gap-3"
+            data-loading="Checking against Microsoft"
+            data-loading-note="One What If call per condition set, so this is slower than a simulation.">
         <div>
           <label class="block text-xs font-medium text-slate-400 mb-1">Condition sets to check</label>
           <select name="max_tuples" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
@@ -145,7 +147,8 @@
     </div>
     {% endif %}
 
-    <form method="post">
+    <form method="post" data-loading="Checking against Microsoft"
+          data-loading-note="One What If call per condition set.">
       <input type="hidden" name="max_tuples" value="{{ report.tuples_compared }}">
       <button type="submit" class="text-xs px-3 py-2 rounded-lg border border-slate-700 text-slate-400 hover:text-slate-200">
         Run again
@@ -153,4 +156,8 @@
     </form>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+{% include 'simulator/_loading.html' %}
 {% endblock %}
