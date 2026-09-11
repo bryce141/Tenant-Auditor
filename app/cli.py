@@ -12,8 +12,10 @@ silently not running is worse than the inconvenience of a crontab entry.
     flask scheduled-run            # audit everything, then send the digest
     flask ca-corpus --tenant X     # sign-in corpus stats for the CA simulator
     flask ca-validate --tenant X   # prove the CA engine against Microsoft
+    flask ca-impact draft.json     # what a draft policy would break
 """
 import sys
+from pathlib import Path
 
 import click
 from flask.cli import with_appcontext
@@ -348,9 +350,119 @@ def ca_validate_command(tenant, days, max_records, max_tuples, show):
         raise SystemExit(1)
 
 
+@click.command("ca-impact")
+@click.argument("policy_file", type=click.Path(exists=True, dir_okay=False))
+@click.option("--tenant", help="only this tenant (required when several exist)")
+@click.option("--days", default=30, show_default=True, help="sign-in window")
+@click.option("--max-records", type=int, help="cap the sign-ins fetched")
+@click.option("--show", default=15, show_default=True,
+              help="how many affected users to list")
+@click.option("--json", "as_json", is_flag=True, help="emit the report as JSON")
+@with_appcontext
+def ca_impact_command(policy_file, tenant, days, max_records, show, as_json):
+    """Report what a draft Conditional Access policy would have broken.
+
+    POLICY_FILE is a Graph conditionalAccessPolicy JSON document. Nothing is
+    ever written to the tenant — the draft is evaluated against observed
+    sign-ins and discarded.
+    """
+    import json as jsonlib
+
+    from app.auth.graph_auth import get_headers
+    from app.services.ca_impact import assess
+    from app.services.ca_memberships import MembershipCache, resolve_for_corpus
+    from app.services.graph_client import GraphClient, GraphError
+    from app.services.signin_corpus import build_corpus
+
+    draft = jsonlib.loads(Path(policy_file).read_text())
+
+    tenants = _resolve(tenant)
+    if len(tenants) > 1:
+        names = ", ".join(t.name for t in tenants)
+        raise click.ClickException(f"Several tenants configured — pass --tenant. {names}")
+    if not tenants:
+        raise click.ClickException("No tenants configured.")
+    t = tenants[0]
+
+    try:
+        headers, tenant_id = get_headers(t)
+        client = GraphClient(headers)
+        existing = client.get_all("/identity/conditionalAccess/policies")
+        corpus = build_corpus(client, days=days, max_records=max_records)
+    except GraphError as e:
+        raise click.ClickException(str(e))
+
+    if not corpus.observations:
+        raise click.ClickException(
+            f"No sign-ins in the last {days} days — nothing to simulate against.")
+
+    memberships = resolve_for_corpus(client, corpus, cache=MembershipCache(tenant_id))
+    impact = assess(draft, corpus, memberships, existing_policies=existing)
+    report = impact.summary()
+
+    if as_json:
+        click.echo(jsonlib.dumps(report, indent=2))
+        return
+
+    click.echo(f"\n{report['policy_name']}  —  {t.name}")
+    click.echo("=" * 70)
+    click.echo(f"\n  {impact.headline()}")
+    click.echo(f"  out of {report['corpus_sign_ins']:,} sign-ins by "
+               f"{report['corpus_users']:,} users over {report['window_days']} days")
+
+    if not impact.enforces:
+        click.echo(f"\n  NOTE: this draft is '{report['declared_state']}'. The figures "
+                   "above are what it\n  would do once enabled; as written it enforces "
+                   "nothing.")
+
+    if report["blocked_sign_ins"]:
+        click.echo(f"\n  Blocked outright   {report['blocked_sign_ins']:,} sign-ins, "
+                   f"{report['blocked_users']:,} users")
+
+    if report["new_controls"]:
+        click.echo("\n  Newly required:")
+        for control, counts in report["new_controls"].items():
+            click.echo(f"    {control:<32} {counts['sign_ins']:>7,} sign-ins  "
+                       f"{counts['users']:>4,} users")
+
+    if report["unchanged_sign_ins"]:
+        click.echo(f"\n  {report['unchanged_sign_ins']:,} sign-ins already satisfy an "
+                   "equivalent control and\n  would notice no change.")
+
+    if not impact.complete:
+        # Loud on purpose: a tuple we could not evaluate might be the one that
+        # breaks someone important, so the totals above are floors.
+        click.echo(f"\n  INCOMPLETE — {report['unsupported_sign_ins']:,} sign-ins "
+                   f"({report['unsupported_users']:,} users) could not be evaluated.")
+        click.echo("  The figures above are lower bounds, not totals. Reasons:")
+        for reason, count in sorted(report["unsupported_reasons"].items(),
+                                    key=lambda kv: -kv[1]):
+            click.echo(f"    {count:>7,}  {reason}")
+
+    if report["by_resource"]:
+        click.echo("\n  By resource:")
+        for name, count in list(report["by_resource"].items())[:10]:
+            click.echo(f"    {count:>7,}  {name}")
+
+    if report["by_platform"]:
+        click.echo("\n  By device platform:")
+        for name, count in list(report["by_platform"].items())[:10]:
+            click.echo(f"    {count:>7,}  {name}")
+
+    if report["affected"] and show:
+        click.echo(f"\n  Affected users (first {min(show, len(report['affected']))}):")
+        for user in report["affected"][:show]:
+            marker = "BLOCKED" if user["blocked"] else ", ".join(user["controls"])
+            click.echo(f"    {user['sign_ins']:>6,}  "
+                       f"{(user['user_principal_name'] or user['user_id'] or '?')[:40]:<40} {marker}")
+
+    click.echo()
+
+
 def register(app):
     app.cli.add_command(audit_command)
     app.cli.add_command(digest_command)
     app.cli.add_command(scheduled_run_command)
     app.cli.add_command(ca_corpus_command)
     app.cli.add_command(ca_validate_command)
+    app.cli.add_command(ca_impact_command)
