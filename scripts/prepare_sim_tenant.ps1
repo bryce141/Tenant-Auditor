@@ -60,17 +60,44 @@ function Step($number, $text) {
     Write-Host ("-" * 70) -ForegroundColor DarkGray
 }
 
+# Policy.Read.All is required to so much as READ the security defaults policy,
+# and is required alongside Policy.ReadWrite.ConditionalAccess to update it.
+# Leaving it out produces a 403 at step 1 and nowhere else.
+$RequiredScopes = @(
+    "User.ReadWrite.All"
+    "Group.ReadWrite.All"
+    "Organization.Read.All"
+    "Policy.Read.All"
+    "Policy.ReadWrite.ConditionalAccess"
+    "Application.ReadWrite.All"
+    "Directory.ReadWrite.All"
+)
+
+$ConnectCommand = "Connect-MgGraph -UseDeviceAuthentication -Scopes " +
+    (($RequiredScopes | ForEach-Object { "`"$_`"" }) -join ",")
+
 $context = Get-MgContext
 if (-not $context) {
-    throw @"
-Not connected. Run:
-
-  Connect-MgGraph -UseDeviceAuthentication -Scopes "User.ReadWrite.All","Group.ReadWrite.All","Organization.Read.All","Policy.ReadWrite.ConditionalAccess","Application.ReadWrite.All","Directory.ReadWrite.All"
-"@
+    throw "Not connected. Run:`n`n  $ConnectCommand`n"
 }
 
 Write-Host "Tenant : $($context.TenantId)" -ForegroundColor Cyan
 Write-Host "Account: $($context.Account)" -ForegroundColor Cyan
+
+# Check the consented scopes up front rather than discovering a gap partway
+# through, with the tenant already half prepared.
+$missing = $RequiredScopes | Where-Object { $_ -notin $context.Scopes }
+if ($missing) {
+    throw @"
+The current session is missing scope(s): $($missing -join ', ')
+
+Reconnect with the full set — consent is per-session, so an earlier connection
+with fewer scopes does not carry over:
+
+  Disconnect-MgGraph
+  $ConnectCommand
+"@
+}
 
 # The account exists in more than one tenant, and Connect-MgGraph picks one.
 # Preparing the wrong tenant is slow to notice and annoying to undo.
@@ -83,8 +110,22 @@ if (-not $Execute) {
 # ---------------------------------------------------------------------------
 Step 1 "Security Defaults"
 
-$sd = Get-MgPolicyIdentitySecurityDefaultEnforcementPolicy
-if (-not $sd.IsEnabled) {
+# Read it explicitly rather than letting a failure fall through. A 403 here
+# leaves $sd null, and `-not $sd.IsEnabled` is then TRUE — so a permission
+# error reads as "already disabled", the precondition gets skipped, and step 6
+# fails later for reasons that look nothing like the actual cause.
+$sd = $null
+try {
+    $sd = Get-MgPolicyIdentitySecurityDefaultEnforcementPolicy -ErrorAction Stop
+} catch {
+    throw "Could not read the security defaults policy: " +
+          $_.Exception.Message.Split([Environment]::NewLine)[0] +
+          "`n`nThis is not the same as it being disabled, so preparation stops here."
+}
+
+if ($sd -eq $null) {
+    throw "The security defaults policy read returned nothing. Stopping rather than assuming it is off."
+} elseif (-not $sd.IsEnabled) {
     Write-Host "  already disabled." -ForegroundColor DarkGray
 } elseif (-not $Execute) {
     Write-Host "  would disable (currently ENABLED — CA policy creation will fail)" -ForegroundColor Yellow
