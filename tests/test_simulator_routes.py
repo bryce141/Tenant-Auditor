@@ -195,3 +195,61 @@ def test_gaps_are_listed_in_the_builder(app):
 def test_simulator_appears_in_the_navigation(app):
     resp = signed_in_client(app).get("/simulator/")
     assert b"CA Simulator" in resp.data
+
+
+# ---------------------------------------------------------------------------
+# Making the page legible
+# ---------------------------------------------------------------------------
+
+def test_presets_are_offered_as_starting_points(app):
+    # An empty form asks you to know what policy you want before it shows you
+    # anything. The first person to look at this page said they did not know
+    # what they were looking for.
+    seed_workspace()
+    resp = signed_in_client(app).get("/simulator/")
+    assert b"Start from a common policy" in resp.data
+    assert b"Block legacy authentication" in resp.data
+
+
+def test_a_preset_prefills_the_form(app):
+    seed_workspace()
+    resp = signed_in_client(app).get("/simulator/?preset=block-legacy")
+    assert resp.status_code == 200
+    assert b"Block legacy authentication" in resp.data
+    # The client app types the preset selects must come back ticked.
+    assert b'value="exchangeActiveSync" checked' in resp.data
+
+
+def test_an_unknown_preset_falls_back_to_an_empty_form(app):
+    seed_workspace()
+    resp = signed_in_client(app).get("/simulator/?preset=nonsense")
+    assert resp.status_code == 200
+
+
+def test_multiselects_say_when_nothing_is_selected(app):
+    # An empty listbox looks identical to a full one — the rows are options,
+    # not selections, and without this nothing says so.
+    seed_workspace()
+    resp = signed_in_client(app).get("/simulator/")
+    assert b"None selected" in resp.data
+
+
+def test_a_draft_affecting_everything_is_flagged_as_too_broad(app):
+    # A correct answer that reads as the tool being broken. All users, all
+    # resources, a control nothing currently requires.
+    seed_workspace()
+    resp = simulate(signed_in_client(app), grantControls=["approvedApplication"])
+    assert b"affects essentially all observed traffic" in resp.data
+
+
+def test_a_narrow_draft_is_not_flagged(app):
+    graph = "00000003-0000-0000-c000-000000000000"
+    exchange = "00000002-0000-0ff1-ce00-000000000000"
+    seed_workspace(records=[signin(userId="u1", resourceId=graph)] * 5
+                           + [signin(userId="u2", resourceId=exchange)] * 5)
+    resp = simulate(signed_in_client(app), allApplications=None,
+                    includeApplications=[exchange],
+                    grantControls=["approvedApplication"])
+    assert b"affects essentially all observed traffic" not in resp.data
+    # Half the corpus, so the draft is doing something without doing everything.
+    assert b"5 sign-ins across 1 user would be affected" in resp.data

@@ -1,6 +1,30 @@
 {% extends "base.html" %}
 {% block title %}CA Simulator — Tenant Auditor{% endblock %}
 
+{% block scripts %}
+<script>
+  // "All users" and "All resources" override the include/exclude lists
+  // entirely. Leaving those controls live invites you to fill them in and
+  // wonder why they had no effect — the first screenshot of this page showed
+  // exactly that, with groups, roles and resources all apparently in play
+  // underneath a ticked "All users".
+  function syncScope(toggle) {
+    var block = document.querySelectorAll('[data-scope-block="' + toggle.dataset.scopeToggle + '"]');
+    block.forEach(function (el) {
+      el.style.opacity = toggle.checked ? '0.35' : '1';
+      el.style.pointerEvents = toggle.checked ? 'none' : 'auto';
+      el.querySelectorAll('select, input').forEach(function (field) {
+        field.disabled = toggle.checked;
+      });
+    });
+  }
+  document.querySelectorAll('[data-scope-toggle]').forEach(function (toggle) {
+    syncScope(toggle);
+    toggle.addEventListener('change', function () { syncScope(toggle); });
+  });
+</script>
+{% endblock %}
+
 {% macro multiselect(name, label, options, selected, hint='') %}
   <div>
     <label class="block text-xs font-medium text-slate-400 mb-1">{{ label }}</label>
@@ -10,7 +34,12 @@
         <option value="{{ opt.id }}" {{ 'selected' if opt.id in selected }}>{{ opt.name }}</option>
       {% endfor %}
     </select>
-    {% if hint %}<p class="text-[11px] text-slate-600 mt-1">{{ hint }}</p>{% endif %}
+    {# Without this, an empty listbox looks identical to a full one: the rows
+       are options, not selections, and nothing says so. #}
+    <p class="text-[11px] {{ 'text-blue-400' if selected else 'text-slate-600' }} mt-1">
+      {% if selected %}{{ selected | length }} selected{% else %}None selected — ⌘-click to choose{% endif %}
+      {% if hint %} · {{ hint }}{% endif %}
+    </p>
   </div>
 {% endmacro %}
 
@@ -140,6 +169,22 @@
 
     {# ---------------- builder ---------------- #}
     <form method="post" action="{{ url_for('simulator.simulate') }}" class="lg:col-span-2 space-y-4">
+      <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-300 mb-1">Start from a common policy</p>
+        <p class="text-[11px] text-slate-600 mb-2.5">
+          Or build one from scratch below.
+        </p>
+        <div class="grid grid-cols-1 gap-1.5">
+          {% for key, preset in presets.items() %}
+          <a href="{{ url_for('simulator.index', preset=key) }}"
+             class="block rounded-lg border border-slate-700 hover:border-blue-500/50 hover:bg-slate-800/50 px-2.5 py-1.5">
+            <span class="text-xs text-slate-200">{{ preset.label }}</span>
+            <span class="block text-[11px] text-slate-600 leading-snug">{{ preset.why }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+
       <div class="card p-4 space-y-4">
         <div>
           <label class="block text-xs font-medium text-slate-400 mb-1">Policy name</label>
@@ -151,17 +196,18 @@
         <div class="border-t border-slate-800 pt-3">
           <p class="text-xs font-semibold text-slate-300 mb-2">Who</p>
           <label class="inline-flex items-center gap-2 text-sm text-slate-300 mb-2 cursor-pointer">
-            <input type="checkbox" name="allUsers" {{ 'checked' if form.allUsers or not form }}
+            <input type="checkbox" name="allUsers" data-scope-toggle="users"
+                   {{ 'checked' if form.allUsers or not form }}
                    class="rounded border-slate-600 bg-slate-800 text-blue-500">
             All users
           </label>
-          <div class="grid grid-cols-2 gap-3">
+          <div data-scope-block="users" class="grid grid-cols-2 gap-3">
             {{ multiselect('includeGroups', 'Include groups', choices.groups, form.includeGroups or []) }}
             {{ multiselect('excludeGroups', 'Exclude groups', choices.groups, form.excludeGroups or []) }}
             {{ multiselect('includeRoles', 'Include roles', choices.roles, form.includeRoles or []) }}
             {{ multiselect('excludeRoles', 'Exclude roles', choices.roles, form.excludeRoles or []) }}
           </div>
-          <label class="inline-flex items-center gap-2 text-sm text-slate-300 mt-2 cursor-pointer">
+          <label data-scope-block="users" class="inline-flex items-center gap-2 text-sm text-slate-300 mt-2 cursor-pointer">
             <input type="checkbox" name="includeGuests" {{ 'checked' if form.includeGuests }}
                    class="rounded border-slate-600 bg-slate-800 text-blue-500">
             Guests and external users
@@ -171,15 +217,18 @@
         <div class="border-t border-slate-800 pt-3">
           <p class="text-xs font-semibold text-slate-300 mb-2">What</p>
           <label class="inline-flex items-center gap-2 text-sm text-slate-300 mb-2 cursor-pointer">
-            <input type="checkbox" name="allApplications" {{ 'checked' if form.allApplications or not form }}
+            <input type="checkbox" name="allApplications" data-scope-toggle="apps"
+                   {{ 'checked' if form.allApplications or not form }}
                    class="rounded border-slate-600 bg-slate-800 text-blue-500">
             All resources
           </label>
-          {{ multiselect('includeApplications', 'Include resources', choices.applications,
-                         form.includeApplications or [], 'Resources seen in this window') }}
-          {{ multiselect('excludeApplications', 'Exclude resources', choices.applications,
-                         form.excludeApplications or []) }}
-          {{ checkboxes('appGroups', 'App groups', app_group_choices, form.appGroups or []) }}
+          <div data-scope-block="apps" class="space-y-3">
+            {{ multiselect('includeApplications', 'Include resources', choices.applications,
+                           form.includeApplications or [], 'Resources seen in this window') }}
+            {{ multiselect('excludeApplications', 'Exclude resources', choices.applications,
+                           form.excludeApplications or []) }}
+            {{ checkboxes('appGroups', 'App groups', app_group_choices, form.appGroups or []) }}
+          </div>
         </div>
 
         <div class="border-t border-slate-800 pt-3 space-y-3">
@@ -248,6 +297,21 @@
             out of {{ "{:,}".format(impact.corpus_sign_ins) }} sign-ins by
             {{ "{:,}".format(impact.corpus_users) }} users over the last {{ impact.window_days }} days
           </p>
+
+          {% if impact.corpus_sign_ins and impact.affected_sign_ins >= impact.corpus_sign_ins * 0.95 %}
+          {# Affecting everything is a legitimate answer for an all-users,
+             all-resources policy — but it is almost never what someone meant
+             to test, and reads as the tool being broken rather than the draft
+             being broad. #}
+          <div class="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+            <p class="text-xs text-amber-300 font-medium">This draft affects essentially all observed traffic.</p>
+            <p class="text-[11px] text-amber-400/70 mt-1">
+              That is a real answer for a policy scoped to all users and all resources, but it
+              is rarely what you meant to test. Narrow it to a group, a resource, or a client
+              app type to see a difference worth reading.
+            </p>
+          </div>
+          {% endif %}
 
           {% if not impact.enforces %}
           <p class="text-xs text-slate-400 mt-3 bg-slate-800/60 rounded-lg px-3 py-2">

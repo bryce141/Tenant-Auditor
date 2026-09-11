@@ -21,17 +21,19 @@ along the axis policies actually test. Requesting a token for Exchange, then
 SharePoint, then Graph produces sign-ins that a cloud-app-scoped policy sees as
 genuinely different.
 
-It cannot produce device platform, device compliance, or country. Those come
-from a real client on a real network: the resource-owner password flow reports
-no device, and every request leaves from this machine's IP. Tuples generated
-here will carry `device_platform = None`, which the engine correctly reports as
-UNSUPPORTED against any platform-conditioned policy rather than guessing.
+It also varies the **device platform**, which was a surprise: Entra derives
+`deviceDetail.operatingSystem` from the User-Agent on the token request, and
+does so for the resource-owner flow as well as for browsers. Rotating a handful
+of realistic User-Agent strings produces sign-ins Entra records as Windows,
+macOS, iOS, Android and Linux — verified against a live tenant. Without this
+every scripted sign-in reports no platform at all, and a platform-conditioned
+policy is unevaluable against the entire corpus.
 
-**So this is half the job.** Run it for volume, and separately sign in as two
-or three of these users from a phone and a laptop, in a couple of browsers, to
-get real platform and device spread. A corpus that is 100% scripted traffic
-will show a large UNSUPPORTED count against the platform policies and no
-country diversity at all, and that is an honest result rather than a bug.
+What it still cannot produce is **country and IP diversity**, or device
+compliance and join state. Every request leaves from this machine, and no
+device is registered, so those stay uniform or absent. Tuples carry
+`is_compliant = None`, which the engine reports honestly rather than reading as
+non-compliant.
 
 ## Why the resource-owner flow
 
@@ -53,6 +55,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 import msal  # noqa: E402
+import requests  # noqa: E402
 
 CREDENTIAL_FILE = REPO_ROOT / "test-users.json"
 
@@ -69,6 +72,34 @@ DEFAULT_SCOPES = [
     ("Azure AD Graph", "https://graph.windows.net/.default"),
 ]
 
+# Entra derives deviceDetail.operatingSystem from the User-Agent on the token
+# request, and it does so for the resource-owner flow too — verified against a
+# live tenant, which recorded Windows10, Ios 18.1 and Android from these three
+# strings. Without them every scripted sign-in reports no platform at all, and
+# any platform-conditioned policy is unevaluable against the whole corpus.
+#
+# This is not an attempt to disguise the traffic: it is a test tenant being
+# populated with the variety a real one has, so that platform conditions can be
+# exercised at all.
+DEVICE_PROFILES = [
+    ("Windows",
+     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+     "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"),
+    ("macOS",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+     "(KHTML, like Gecko) Version/18.0 Safari/605.1.15"),
+    ("iPhone",
+     "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) "
+     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 "
+     "Safari/604.1"),
+    ("Android",
+     "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
+     "(KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"),
+    ("Linux",
+     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+     "Chrome/140.0.0.0 Safari/537.36"),
+]
+
 
 def load_users():
     if not CREDENTIAL_FILE.exists():
@@ -80,6 +111,15 @@ def load_users():
     if not users:
         raise SystemExit(f"{CREDENTIAL_FILE.name} is empty.")
     return users
+
+
+def client_for(client_id, tenant_id, user_agent):
+    """An MSAL client whose token requests carry `user_agent`."""
+    session = requests.Session()
+    session.headers.update({"User-Agent": user_agent})
+    return msal.PublicClientApplication(
+        client_id, authority=f"https://login.microsoftonline.com/{tenant_id}",
+        http_client=session)
 
 
 def sign_in(app, user, scope):
@@ -156,23 +196,31 @@ def main():
         print("Dry run — no authentication attempted. Resources that would be hit:")
         for name, scope in DEFAULT_SCOPES:
             print(f"  {name:<18} {scope}")
-        print("\nThis produces no device platform and a single source IP. Sign in "
-              "manually\nfrom a phone and a laptop as well, or the corpus will have "
-              "no platform spread.")
+        print("\nDevice profiles that would be rotated:")
+        for name, _ in DEVICE_PROFILES:
+            print(f"  {name}")
+        print("\nEvery request leaves from this machine, so country and IP will be "
+              "uniform.\nDevice platform does vary, because Entra derives it from "
+              "the User-Agent.")
         return 0
 
-    app = msal.PublicClientApplication(
-        client_id, authority=f"https://login.microsoftonline.com/{tenant_id}")
+    # One client per device profile, built once: each carries its own
+    # User-Agent, which is what makes Entra record a device platform.
+    clients = {name: client_for(client_id, tenant_id, ua)
+               for name, ua in DEVICE_PROFILES}
 
     successes = Counter()
     failures = Counter()
     reasons = Counter()
+    platforms = Counter()
 
     for n in range(1, args.count + 1):
         user = random.choice(users)
         resource_name, scope = random.choice(DEFAULT_SCOPES)
+        device_name = random.choice(list(clients))
+        platforms[device_name] += 1
 
-        ok, detail = sign_in(app, user, scope)
+        ok, detail = sign_in(clients[device_name], user, scope)
         if ok:
             successes[resource_name] += 1
         else:
@@ -188,6 +236,10 @@ def main():
     print("\nBy resource:")
     for name, _ in DEFAULT_SCOPES:
         print(f"  {name:<18} ok={successes[name]:<5} failed={failures[name]}")
+
+    print("\nBy device profile:")
+    for name, count in platforms.most_common():
+        print(f"  {name:<18} {count}")
 
     if reasons:
         print("\nFailure reasons — these still generated sign-in events, but if one")

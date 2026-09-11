@@ -10,7 +10,7 @@ from flask import (Blueprint, Response, current_app, jsonify, render_template,
 from app.auth.graph_auth import get_active_tenant, get_headers, has_credentials
 from app.services import ca_workspace
 from app.services.ca_builder import (APP_GROUP_CHOICES, CLIENT_APP_CHOICES,
-                                     GRANT_CHOICES, PLATFORM_CHOICES,
+                                     GRANT_CHOICES, PLATFORM_CHOICES, PRESETS,
                                      RISK_CHOICES, STATE_CHOICES, BuilderError,
                                      build_policy, describe_gaps, export)
 from app.services.ca_impact import assess
@@ -91,6 +91,7 @@ def _render(tenant, workspace=None, client=None, error=None, impact=None,
         app_group_choices=APP_GROUP_CHOICES,
         state_choices=STATE_CHOICES,
         gaps=describe_gaps(),
+        presets=PRESETS,
         error=error,
         impact=impact.summary() if impact else None,
         draft_json=export(draft) if draft else None,
@@ -107,7 +108,12 @@ def index():
 
     workspace = ca_workspace.get(tenant.tenant_id)
     client = _client(tenant) if workspace else None
-    return _render(tenant, workspace=workspace, client=client)[0]
+
+    # A preset pre-fills the form so the first click produces a number rather
+    # than an empty eleven-field form.
+    preset = PRESETS.get(request.args.get("preset") or "")
+    form = dict(preset["form"]) if preset else None
+    return _render(tenant, workspace=workspace, client=client, form=form)[0]
 
 
 @bp.route("/build", methods=["POST"])

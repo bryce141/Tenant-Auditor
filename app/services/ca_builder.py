@@ -168,6 +168,63 @@ def export(policy):
     return json.dumps(policy, indent=2)
 
 
+# Starting points, because an empty form is a bad first screen: it asks you to
+# know what policy you want before it shows you anything, and gives no reason to
+# care about the answer until eleven fields are filled in. These are the
+# policies people actually write, so one click produces a real number.
+GLOBAL_ADMIN_ROLE = "62e90394-69f5-4237-9190-012177145e10"
+EXCHANGE_ONLINE_APP = "00000002-0000-0ff1-ce00-000000000000"
+
+PRESETS = {
+    "block-legacy": {
+        "label": "Block legacy authentication",
+        "why": "The single highest-value CA policy, and the one most likely to "
+               "break a forgotten mail client.",
+        "form": {
+            "displayName": "Block legacy authentication",
+            "allUsers": "on", "allApplications": "on",
+            "clientAppTypes": ["exchangeActiveSync", "other"],
+            "grantControls": ["block"], "grantOperator": "OR",
+            "state": "enabledForReportingButNotEnforced",
+        },
+    },
+    "admin-mfa": {
+        "label": "Require MFA for admins",
+        "why": "Narrow by design — shows the difference between a policy that "
+               "touches everyone and one that touches a handful.",
+        "form": {
+            "displayName": "Require MFA for admins",
+            "includeRoles": [GLOBAL_ADMIN_ROLE], "allApplications": "on",
+            "grantControls": ["mfa"], "grantOperator": "OR",
+            "state": "enabledForReportingButNotEnforced",
+        },
+    },
+    "compliant-exchange": {
+        "label": "Require compliant device for Exchange",
+        "why": "Scoped to one resource, and requires something no unmanaged "
+               "device can satisfy.",
+        "form": {
+            "displayName": "Require compliant device for Exchange",
+            "allUsers": "on", "includeApplications": [EXCHANGE_ONLINE_APP],
+            "grantControls": ["compliantDevice"], "grantOperator": "OR",
+            "state": "enabledForReportingButNotEnforced",
+        },
+    },
+    "mobile-mfa": {
+        "label": "Require MFA on mobile",
+        "why": "Exercises the device platform condition, which only has an "
+               "answer for sign-ins that reported one.",
+        "form": {
+            "displayName": "Require MFA on mobile",
+            "allUsers": "on", "allApplications": "on",
+            "includePlatforms": ["android", "iOS"],
+            "grantControls": ["mfa"], "grantOperator": "OR",
+            "state": "enabledForReportingButNotEnforced",
+        },
+    },
+}
+
+
 def describe_gaps():
     """Conditions the engine cannot evaluate, for the builder to say so plainly.
 
