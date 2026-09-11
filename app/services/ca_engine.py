@@ -162,8 +162,16 @@ def _match_users(users, conditions, membership):
     if in_role(exclude_roles):
         return False, "user is in an excluded role"
 
-    if NO_USERS in include_users:
-        return False, "policy targets no users"
+    # "None" in includeUsers means the *user list* is empty — not that the
+    # policy targets nobody. A policy scoped to a directory role or a group is
+    # written by the portal as includeUsers ["None"] plus includeRoles /
+    # includeGroups, and the include sets are a union: "None" contributes
+    # nothing to it rather than zeroing it.
+    #
+    # Returning early here made every role- and group-targeted policy report as
+    # applying to no one, which is the false negative this engine exists to
+    # avoid. Caught by the agreement harness on its first run against a real
+    # tenant, at a cost of 5 disagreements out of 129 comparisons.
 
     included = (
         ALL_USERS in include_users

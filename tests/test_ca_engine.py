@@ -109,9 +109,35 @@ def test_all_users_matches():
                     conditions(), member()).applies is True
 
 
-def test_none_targets_nobody():
+def test_none_with_nothing_else_targets_nobody():
     e = evaluate(policy(users={"includeUsers": ["None"]}), conditions(), member())
     assert e.applies is False
+
+
+def test_none_does_not_cancel_a_role_or_group_target():
+    # The portal writes a role- or group-scoped policy as includeUsers ["None"]
+    # plus includeRoles/includeGroups. "None" means the user list is empty, not
+    # that the policy targets nobody — the include sets are a union.
+    #
+    # Treating it as "nobody" made every role- and group-targeted policy report
+    # as affecting no one. Found by the agreement harness against a real
+    # tenant, not by this suite.
+    role_scoped = {"includeUsers": ["None"], "includeRoles": [GLOBAL_ADMIN_TEMPLATE]}
+    assert evaluate(policy(users=role_scoped), conditions(),
+                    member(role_template_ids=frozenset({GLOBAL_ADMIN_TEMPLATE}))
+                    ).applies is True
+    assert evaluate(policy(users=role_scoped), conditions(), member()).applies is False
+
+    group_scoped = {"includeUsers": ["None"], "includeGroups": ["g1"]}
+    assert evaluate(policy(users=group_scoped), conditions(),
+                    member(group_ids=frozenset({"g1"}))).applies is True
+
+
+def test_none_still_honours_exclusions():
+    users = {"includeUsers": ["None"], "includeGroups": ["g1"],
+             "excludeGroups": ["breakglass"]}
+    m = member(group_ids=frozenset({"g1", "breakglass"}))
+    assert evaluate(policy(users=users), conditions(), m).applies is False
 
 
 def test_specific_user_matches_case_insensitively():
