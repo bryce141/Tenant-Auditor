@@ -69,7 +69,7 @@ def test_microsoft_graph_is_not_in_the_office365_suite():
     # Graph is an umbrella resource and is explicitly not targetable as part of
     # the suite. Including it would over-report every Office365-scoped policy.
     r = AppGroupResolver(service_principals())
-    assert r.resolve(GRAPH).contains(OFFICE365) is False
+    assert r.resolve(GRAPH, "Microsoft Graph").contains(OFFICE365) is False
 
 
 def test_admin_portals_are_matched_by_documented_id_not_by_name():
@@ -77,7 +77,7 @@ def test_admin_portals_are_matched_by_documented_id_not_by_name():
     # exact rather than approximate.
     r = AppGroupResolver(service_principals())
     assert r.resolve(EXCHANGE_ADMIN).contains(MICROSOFT_ADMIN_PORTALS) is True
-    assert r.resolve(EXCHANGE).contains(MICROSOFT_ADMIN_PORTALS) is False
+    assert r.resolve(EXCHANGE, "Office 365 Exchange Online").contains(MICROSOFT_ADMIN_PORTALS) is False
 
 
 def test_every_documented_admin_portal_id_resolves():
@@ -96,15 +96,39 @@ def test_a_resource_with_no_id_is_unresolved_not_absent():
     assert AppGroupResolver([]).resolve(None).contains(OFFICE365) is None
 
 
+def test_a_suite_member_with_no_service_principal_is_matched_by_name():
+    # OfficeHome is in Microsoft's published list, is targeted by Office365
+    # scoped policies, and has no service principal in the tenant whose
+    # traffic it appears in. Matching only via service principals called it
+    # "outside the suite" — a false negative, caught by the agreement harness.
+    r = AppGroupResolver([])  # no service principals at all
+    assert r.resolve("4765445b-32c6-49b0-83e6-1d93765276ca",
+                     "OfficeHome").contains(OFFICE365) is True
+
+
+def test_a_named_resource_absent_from_the_list_is_definitely_outside():
+    # The published list is Microsoft's statement of membership by name, so a
+    # name we can check and do not find is a real answer, not a gap.
+    r = AppGroupResolver(service_principals())
+    assert r.resolve(GRAPH, "Microsoft Graph").contains(OFFICE365) is False
+
+
+def test_a_resource_with_no_name_and_no_match_stays_unknown():
+    # Without a name there is nothing to check against, so "not in the suite"
+    # would be a guess.
+    r = AppGroupResolver([])
+    assert r.resolve("some-unknown-app-id").contains(OFFICE365) is None
+
+
 def test_coverage_reports_how_much_of_the_suite_is_provisioned():
     matched, total = AppGroupResolver(service_principals()).coverage
     assert matched == 2  # Exchange Online and Teams
     assert total > 100
 
 
-def test_an_empty_directory_resolves_without_error():
+def test_an_empty_directory_still_matches_by_name():
     r = AppGroupResolver([])
-    assert r.resolve(EXCHANGE).contains(OFFICE365) is False
+    assert r.resolve(EXCHANGE, "Office 365 Exchange Online").contains(OFFICE365) is True
 
 
 # ---------------------------------------------------------------------------

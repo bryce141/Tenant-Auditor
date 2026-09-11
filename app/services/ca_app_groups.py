@@ -136,16 +136,42 @@ class AppGroupResolver:
         """How much of the published suite this tenant actually has provisioned."""
         return len(self.matched_names), len(OFFICE365_SUITE_NAMES)
 
-    def resolve(self, resource_id):
+    def resolve(self, resource_id, resource_display_name=None):
+        """Which groups a resource belongs to.
+
+        Two independent signals, because one is not enough. Matching the
+        published names against the tenant's service principals misses any
+        suite member with no service principal provisioned — and that is not
+        hypothetical: `OfficeHome` is in Microsoft's published list, is targeted
+        by an Office365-scoped policy, and has no service principal in the
+        tenant whose traffic it appears in. The agreement harness caught it as
+        a disagreement on the `application` condition, which is the only reason
+        it is handled here at all.
+
+        So the resource display name the sign-in log already carries is matched
+        against the published list directly. A resource whose name we know but
+        which is absent from that list is genuinely outside the suite — the
+        list is Microsoft's statement of membership by name. A resource we have
+        no name for is unknown rather than outside, because "not matched" there
+        would be a guess.
+        """
         if not resource_id:
             return AppGroups(resolved=False)
+
         resource_id = resource_id.lower()
+        name = (resource_display_name or "").strip().lower()
+
         tokens = set()
-        if resource_id in self.office365_app_ids:
+        if resource_id in self.office365_app_ids or (name and name in OFFICE365_SUITE_NAMES):
             tokens.add(OFFICE365)
         if resource_id in ADMIN_PORTAL_APP_IDS:
             tokens.add(MICROSOFT_ADMIN_PORTALS)
-        return AppGroups(tokens=frozenset(tokens), resolved=True)
+
+        if tokens:
+            return AppGroups(tokens=frozenset(tokens), resolved=True)
+
+        # Nothing matched. Only a definite answer if we had a name to check.
+        return AppGroups(tokens=frozenset(), resolved=bool(name))
 
 
 def fetch_service_principals(client):

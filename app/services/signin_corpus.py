@@ -497,7 +497,8 @@ def reduce_to_tuples(signins, window_days=30, truncated=False, locations=None,
 
         group_tokens = None
         if app_groups is not None:
-            membership = app_groups.resolve(signin.get("resourceId"))
+            membership = app_groups.resolve(signin.get("resourceId"),
+                                            signin.get("resourceDisplayName"))
             group_tokens = membership.tokens if membership.resolved else None
 
         conditions = ConditionTuple(
