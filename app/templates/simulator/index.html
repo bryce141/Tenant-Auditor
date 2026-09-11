@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+{% block title %}CA Simulator — Tenant Auditor{% endblock %}
+
+{% macro multiselect(name, label, options, selected, hint='') %}
+  <div>
+    <label class="block text-xs font-medium text-slate-400 mb-1">{{ label }}</label>
+    <select name="{{ name }}" multiple size="4"
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200">
+      {% for opt in options %}
+        <option value="{{ opt.id }}" {{ 'selected' if opt.id in selected }}>{{ opt.name }}</option>
+      {% endfor %}
+    </select>
+    {% if hint %}<p class="text-[11px] text-slate-600 mt-1">{{ hint }}</p>{% endif %}
+  </div>
+{% endmacro %}
+
+{% macro checkboxes(name, label, values, selected) %}
+  <div>
+    <label class="block text-xs font-medium text-slate-400 mb-1.5">{{ label }}</label>
+    <div class="flex flex-wrap gap-1.5">
+      {% for v in values %}
+        <label class="inline-flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-300 cursor-pointer hover:border-slate-600">
+          <input type="checkbox" name="{{ name }}" value="{{ v }}" {{ 'checked' if v in selected }}
+                 class="rounded border-slate-600 bg-slate-800 text-blue-500">
+          {{ v }}
+        </label>
+      {% endfor %}
+    </div>
+  </div>
+{% endmacro %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-6 py-6">
+
+  <div class="flex items-start justify-between mb-5">
+    <div>
+      <h1 class="text-xl font-bold text-slate-100">Conditional Access Simulator</h1>
+      <p class="text-sm text-slate-500 mt-0.5">
+        Compose a policy and see which real users and sign-ins it would have affected.
+        Nothing is written to the tenant.
+      </p>
+    </div>
+    {% if summary %}
+    <a href="{{ url_for('simulator.agreement') }}"
+       class="shrink-0 text-xs px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20">
+      Why trust these numbers? &rarr;
+    </a>
+    {% endif %}
+  </div>
+
+  {% if error %}
+    <div class="card p-4 mb-5 border-red-500/30 bg-red-500/5">
+      <p class="text-sm text-red-300">{{ error }}</p>
+    </div>
+  {% endif %}
+
+  {% if not summary %}
+    {# Nothing can be simulated until the tenant's traffic is loaded. #}
+    <div class="card p-6">
+      <h2 class="text-base font-semibold text-slate-200 mb-1">Load sign-in traffic</h2>
+      <p class="text-sm text-slate-500 mb-4 max-w-2xl">
+        The simulator evaluates a draft against sign-ins that actually happened, so it
+        needs the tenant's sign-in log, its existing policies, and the group and role
+        membership of everyone who appears in it. This takes a moment, and is reused
+        for every draft afterwards.
+      </p>
+      <form method="post" action="{{ url_for('simulator.build') }}" class="flex items-end gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">Window</label>
+          <select name="days" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+          </select>
+        </div>
+        <button type="submit" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium">
+          Load traffic
+        </button>
+      </form>
+    </div>
+  {% else %}
+
+  {# ---------------- corpus banner ---------------- #}
+  <div class="card p-4 mb-5">
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      <div class="flex items-center gap-6 text-sm">
+        <div>
+          <span class="text-slate-500">Sign-ins</span>
+          <span class="ml-1.5 font-semibold text-slate-200">{{ "{:,}".format(summary.sign_ins) }}</span>
+        </div>
+        <div>
+          <span class="text-slate-500">Users</span>
+          <span class="ml-1.5 font-semibold text-slate-200">{{ "{:,}".format(summary.distinct_users) }}</span>
+        </div>
+        <div>
+          <span class="text-slate-500">Distinct condition sets</span>
+          <span class="ml-1.5 font-semibold text-slate-200">{{ "{:,}".format(summary.tuples) }}</span>
+          <span class="text-slate-600 text-xs ml-1">({{ summary.reduction_ratio }}x)</span>
+        </div>
+        <div>
+          <span class="text-slate-500">Policies</span>
+          <span class="ml-1.5 font-semibold text-slate-200">{{ summary.policies }}</span>
+        </div>
+      </div>
+      <form method="post" action="{{ url_for('simulator.build') }}" class="flex items-center gap-2">
+        <input type="hidden" name="days" value="{{ summary.days }}">
+        <input type="hidden" name="force" value="1">
+        <span class="text-xs text-slate-600">
+          {{ summary.days }}-day window, loaded {{ summary.age_minutes }} min ago
+        </span>
+        <button type="submit" class="text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600">
+          Reload
+        </button>
+      </form>
+    </div>
+
+    {% if summary.truncated or summary.unresolved_users or summary.unmapped %}
+    <div class="mt-3 pt-3 border-t border-slate-800 space-y-1">
+      {% if summary.truncated %}
+      <p class="text-xs text-amber-400">
+        Traffic was truncated — impact figures are lower bounds, not totals.
+      </p>
+      {% endif %}
+      {% if summary.unresolved_users %}
+      <p class="text-xs text-amber-400">
+        {{ summary.unresolved_users }} user(s) could not be resolved, likely deleted since
+        their sign-in. Policies targeting groups or roles cannot be evaluated for them.
+      </p>
+      {% endif %}
+      {% for field, values in summary.unmapped.items() %}
+      <p class="text-xs text-amber-400">
+        Unrecognised {{ field }}: {{ values.keys() | join(', ') }} — traffic the engine
+        cannot classify.
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-5">
+
+    {# ---------------- builder ---------------- #}
+    <form method="post" action="{{ url_for('simulator.simulate') }}" class="lg:col-span-2 space-y-4">
+      <div class="card p-4 space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">Policy name</label>
+          <input type="text" name="displayName" value="{{ form.displayName or '' }}"
+                 placeholder="Require MFA for Exchange"
+                 class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
+        </div>
+
+        <div class="border-t border-slate-800 pt-3">
+          <p class="text-xs font-semibold text-slate-300 mb-2">Who</p>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-300 mb-2 cursor-pointer">
+            <input type="checkbox" name="allUsers" {{ 'checked' if form.allUsers or not form }}
+                   class="rounded border-slate-600 bg-slate-800 text-blue-500">
+            All users
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            {{ multiselect('includeGroups', 'Include groups', choices.groups, form.includeGroups or []) }}
+            {{ multiselect('excludeGroups', 'Exclude groups', choices.groups, form.excludeGroups or []) }}
+            {{ multiselect('includeRoles', 'Include roles', choices.roles, form.includeRoles or []) }}
+            {{ multiselect('excludeRoles', 'Exclude roles', choices.roles, form.excludeRoles or []) }}
+          </div>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-300 mt-2 cursor-pointer">
+            <input type="checkbox" name="includeGuests" {{ 'checked' if form.includeGuests }}
+                   class="rounded border-slate-600 bg-slate-800 text-blue-500">
+            Guests and external users
+          </label>
+        </div>
+
+        <div class="border-t border-slate-800 pt-3">
+          <p class="text-xs font-semibold text-slate-300 mb-2">What</p>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-300 mb-2 cursor-pointer">
+            <input type="checkbox" name="allApplications" {{ 'checked' if form.allApplications or not form }}
+                   class="rounded border-slate-600 bg-slate-800 text-blue-500">
+            All resources
+          </label>
+          {{ multiselect('includeApplications', 'Include resources', choices.applications,
+                         form.includeApplications or [], 'Resources seen in this window') }}
+          {{ multiselect('excludeApplications', 'Exclude resources', choices.applications,
+                         form.excludeApplications or []) }}
+          {{ checkboxes('appGroups', 'App groups', app_group_choices, form.appGroups or []) }}
+        </div>
+
+        <div class="border-t border-slate-800 pt-3 space-y-3">
+          <p class="text-xs font-semibold text-slate-300">Conditions</p>
+          {{ checkboxes('clientAppTypes', 'Client apps', client_app_choices, form.clientAppTypes or []) }}
+          {{ checkboxes('includePlatforms', 'Device platforms', platform_choices, form.includePlatforms or []) }}
+          {{ checkboxes('excludePlatforms', 'Exclude platforms', platform_choices, form.excludePlatforms or []) }}
+          {% if choices.locations %}
+            {{ multiselect('includeLocations', 'Include locations', choices.locations, form.includeLocations or []) }}
+            {{ multiselect('excludeLocations', 'Exclude locations', choices.locations, form.excludeLocations or []) }}
+          {% endif %}
+          {{ checkboxes('signInRiskLevels', 'Sign-in risk', risk_choices, form.signInRiskLevels or []) }}
+          {{ checkboxes('userRiskLevels', 'User risk', risk_choices, form.userRiskLevels or []) }}
+        </div>
+
+        <div class="border-t border-slate-800 pt-3 space-y-3">
+          <p class="text-xs font-semibold text-slate-300">Grant</p>
+          {{ checkboxes('grantControls', 'Controls', grant_choices, form.grantControls or []) }}
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Operator</label>
+              <select name="grantOperator" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200">
+                <option value="OR" {{ 'selected' if form.grantOperator == 'OR' }}>Require one (OR)</option>
+                <option value="AND" {{ 'selected' if form.grantOperator == 'AND' }}>Require all (AND)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">State</label>
+              <select name="state" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200">
+                {% for s in state_choices %}
+                  <option value="{{ s }}" {{ 'selected' if form.state == s }}>{{ s }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" class="w-full px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold">
+          Simulate impact
+        </button>
+      </div>
+
+      <div class="card p-3">
+        <p class="text-[11px] font-semibold text-slate-400 mb-1.5">Not simulated</p>
+        <ul class="space-y-1">
+          {% for name, why in gaps %}
+          <li class="text-[11px] text-slate-600"><span class="text-slate-500">{{ name }}</span> — {{ why }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </form>
+
+    {# ---------------- results ---------------- #}
+    <div class="lg:col-span-3 space-y-4">
+      {% if not impact %}
+        <div class="card p-8 text-center">
+          <p class="text-sm text-slate-500">
+            Compose a policy and simulate it to see who it would affect.
+          </p>
+        </div>
+      {% else %}
+        <div class="card p-5">
+          <p class="text-xs text-slate-500 uppercase tracking-wide font-semibold">Impact</p>
+          <p class="text-2xl font-bold text-slate-100 mt-1">{{ impact.headline }}</p>
+          <p class="text-xs text-slate-500 mt-1">
+            out of {{ "{:,}".format(impact.corpus_sign_ins) }} sign-ins by
+            {{ "{:,}".format(impact.corpus_users) }} users over the last {{ impact.window_days }} days
+          </p>
+
+          {% if not impact.enforces %}
+          <p class="text-xs text-slate-400 mt-3 bg-slate-800/60 rounded-lg px-3 py-2">
+            This draft is <span class="font-mono">{{ impact.declared_state }}</span>. The figures
+            are what it would do once enabled; as written it enforces nothing.
+          </p>
+          {% endif %}
+
+          {% if not impact.complete %}
+          <div class="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+            <p class="text-xs text-amber-300 font-medium">
+              Incomplete — {{ "{:,}".format(impact.unsupported_sign_ins) }} sign-ins
+              ({{ impact.unsupported_users }} users) could not be evaluated.
+            </p>
+            <p class="text-[11px] text-amber-400/70 mt-1">
+              The figures above are lower bounds, not totals.
+            </p>
+            <ul class="mt-1.5 space-y-0.5">
+              {% for reason, count in impact.unsupported_reasons.items() %}
+              <li class="text-[11px] text-amber-400/60">{{ "{:,}".format(count) }} — {{ reason }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+
+          <div class="grid grid-cols-2 gap-3 mt-4">
+            {% if impact.blocked_sign_ins %}
+            <div class="rounded-lg bg-red-500/5 border border-red-500/20 px-3 py-2">
+              <p class="text-[11px] text-red-400/80 uppercase tracking-wide">Blocked outright</p>
+              <p class="text-lg font-bold text-red-300">{{ "{:,}".format(impact.blocked_sign_ins) }}</p>
+              <p class="text-[11px] text-red-400/60">{{ impact.blocked_users }} users</p>
+            </div>
+            {% endif %}
+            {% if impact.unchanged_sign_ins %}
+            <div class="rounded-lg bg-slate-800/60 px-3 py-2">
+              <p class="text-[11px] text-slate-500 uppercase tracking-wide">Already covered</p>
+              <p class="text-lg font-bold text-slate-300">{{ "{:,}".format(impact.unchanged_sign_ins) }}</p>
+              <p class="text-[11px] text-slate-600">would notice no change</p>
+            </div>
+            {% endif %}
+          </div>
+
+          {% if impact.new_controls %}
+          <div class="mt-4">
+            <p class="text-xs font-semibold text-slate-400 mb-1.5">Newly required</p>
+            <table class="w-full text-sm">
+              {% for control, counts in impact.new_controls.items() %}
+              <tr class="border-t border-slate-800">
+                <td class="py-1.5 text-slate-300">{{ control }}</td>
+                <td class="py-1.5 text-right text-slate-400">{{ "{:,}".format(counts.sign_ins) }} sign-ins</td>
+                <td class="py-1.5 text-right text-slate-500 w-24">{{ counts.users }} users</td>
+              </tr>
+              {% endfor %}
+            </table>
+          </div>
+          {% endif %}
+        </div>
+
+        {% if impact.by_resource or impact.by_platform %}
+        <div class="grid grid-cols-2 gap-4">
+          {% for title, data in [('By resource', impact.by_resource), ('By device platform', impact.by_platform)] %}
+          {% if data %}
+          <div class="card p-4">
+            <p class="text-xs font-semibold text-slate-400 mb-2">{{ title }}</p>
+            {% for name, count in data.items() %}
+            <div class="flex justify-between text-xs py-1 border-t border-slate-800/60">
+              <span class="text-slate-400 truncate pr-2">{{ name }}</span>
+              <span class="text-slate-300 font-medium shrink-0">{{ "{:,}".format(count) }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if impact.affected %}
+        <div class="card p-4">
+          <p class="text-xs font-semibold text-slate-400 mb-2">
+            Affected users ({{ impact.affected | length }})
+          </p>
+          <div class="max-h-80 overflow-y-auto">
+            <table class="w-full text-xs">
+              {% for user in impact.affected %}
+              <tr class="border-t border-slate-800/60">
+                <td class="py-1.5 text-slate-300 truncate">{{ user.user_principal_name or user.user_id }}</td>
+                <td class="py-1.5 text-right text-slate-500 w-20">{{ "{:,}".format(user.sign_ins) }}</td>
+                <td class="py-1.5 text-right w-48">
+                  {% if user.blocked %}
+                    <span class="badge-fail px-1.5 py-0.5">blocked</span>
+                  {% else %}
+                    <span class="text-slate-500">{{ user.controls | join(', ') }}</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </table>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if draft_json %}
+        <div class="card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-xs font-semibold text-slate-400">Graph JSON</p>
+            <form method="post" action="{{ url_for('simulator.export_policy') }}">
+              {% for key, value in form.items() %}
+                {% if value is string %}
+                  <input type="hidden" name="{{ key }}" value="{{ value }}">
+                {% elif value %}
+                  {% for v in value %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}
+                {% endif %}
+              {% endfor %}
+              <button type="submit" class="text-xs px-2.5 py-1 rounded-lg border border-slate-700 text-slate-400 hover:text-slate-200">
+                Download
+              </button>
+            </form>
+          </div>
+          <pre class="text-[11px] text-slate-400 bg-slate-950 rounded-lg p-3 overflow-x-auto max-h-64">{{ draft_json }}</pre>
+          <p class="text-[11px] text-slate-600 mt-2">
+            Apply this yourself in the portal or with PowerShell. The simulator never
+            writes to a tenant.
+          </p>
+        </div>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

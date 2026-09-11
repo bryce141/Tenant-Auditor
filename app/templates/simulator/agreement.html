@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Engine agreement — Tenant Auditor{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto px-6 py-6">
+
+  <div class="mb-5">
+    <a href="{{ url_for('simulator.index') }}" class="text-xs text-slate-500 hover:text-slate-300">&larr; Simulator</a>
+    <h1 class="text-xl font-bold text-slate-100 mt-1">Why trust these numbers?</h1>
+    <p class="text-sm text-slate-500 mt-1 max-w-3xl">
+      Microsoft's What If API can only score policies that already exist in a tenant, so it
+      cannot evaluate a draft. This tool implements its own evaluation engine — and then
+      checks that engine against Microsoft's, on this tenant's real policies and real
+      sign-ins. The agreement rate below is that check.
+    </p>
+  </div>
+
+  {% if error %}
+    <div class="card p-4 mb-5 border-red-500/30 bg-red-500/5">
+      <p class="text-sm text-red-300">{{ error }}</p>
+      {% if 'traffic' in error %}
+      <a href="{{ url_for('simulator.index') }}" class="text-xs text-red-200 underline mt-1 inline-block">Load it now</a>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if summary and not report %}
+    <div class="card p-6">
+      <h2 class="text-base font-semibold text-slate-200 mb-1">Run the check</h2>
+      <p class="text-sm text-slate-500 mb-4 max-w-2xl">
+        Every distinct condition set in the window is evaluated twice — once by this engine,
+        once by Microsoft — and the verdicts are compared, policy by policy. Busiest condition
+        sets go first, so a capped run still covers most real traffic. This makes one API call
+        per condition set, so it is slower than a simulation.
+      </p>
+      <form method="post" class="flex items-end gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">Condition sets to check</label>
+          <select name="max_tuples" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="200">200</option>
+          </select>
+        </div>
+        <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium">
+          Check against Microsoft
+        </button>
+      </form>
+    </div>
+  {% endif %}
+
+  {% if report %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+      <div class="card p-5">
+        <p class="text-xs text-slate-500 uppercase tracking-wide font-semibold">vs Microsoft What If</p>
+        <p class="text-3xl font-bold {{ 'text-emerald-400' if report.disagreements == 0 else 'text-amber-400' }} mt-1">
+          {{ "%.2f"|format(report.agreement_rate * 100) if report.agreement_rate is not none else "—" }}%
+        </p>
+        <p class="text-xs text-slate-500 mt-1">
+          {{ "{:,}".format(report.agreements) }} of {{ "{:,}".format(report.comparisons) }} verdicts agree
+        </p>
+        <p class="text-[11px] text-slate-600 mt-2">
+          {{ report.tuples_compared }} condition sets, covering
+          {{ "%.0f"|format(report.coverage * 100) }}% of sign-ins
+        </p>
+      </div>
+
+      <div class="card p-5">
+        <p class="text-xs text-slate-500 uppercase tracking-wide font-semibold">vs what the tenant actually did</p>
+        <p class="text-3xl font-bold {{ 'text-emerald-400' if cross.disagreements == 0 else 'text-amber-400' }} mt-1">
+          {{ "%.2f"|format(cross.agreement_rate * 100) if cross.agreement_rate is not none else "—" }}%
+        </p>
+        <p class="text-xs text-slate-500 mt-1">
+          {{ "{:,}".format(cross.agreements) }} of {{ "{:,}".format(cross.comparisons) }} verdicts agree
+        </p>
+        <p class="text-[11px] text-slate-600 mt-2">
+          Compared against the policies Entra recorded as applying at real sign-in time
+        </p>
+      </div>
+    </div>
+
+    {% if report.unsupported %}
+    <div class="card p-4 mb-5">
+      <p class="text-xs font-semibold text-slate-400 mb-1">Declared gaps</p>
+      <p class="text-[11px] text-slate-600 mb-2">
+        Conditions the engine does not evaluate. Counted separately and never as agreement —
+        otherwise the rate above would climb as the engine understood less.
+      </p>
+      <table class="w-full text-xs">
+        {% for reason, count in report.unsupported.items() %}
+        <tr class="border-t border-slate-800/60">
+          <td class="py-1.5 text-slate-400">{{ reason }}</td>
+          <td class="py-1.5 text-right text-slate-500 w-20">{{ "{:,}".format(count) }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endif %}
+
+    {% if disagreements %}
+    <div class="card p-4 mb-5 border-amber-500/30">
+      <p class="text-xs font-semibold text-amber-300 mb-2">
+        Disagreements ({{ disagreements | length }})
+      </p>
+      <p class="text-[11px] text-slate-600 mb-3">
+        Microsoft names the condition it blames, which points at the part of the engine that
+        is wrong.
+      </p>
+      {% for d in disagreements[:20] %}
+      <div class="border-t border-slate-800/60 py-2">
+        <p class="text-xs font-medium text-slate-300">{{ d.policy_name }}</p>
+        <p class="text-[11px] text-slate-500 mt-0.5">
+          we said applies={{ d.ours }} ({{ d.our_reason }})
+        </p>
+        <p class="text-[11px] text-amber-400/80">
+          Microsoft said applies={{ d.theirs }} — blames <span class="font-mono">{{ d.their_reason }}</span>
+        </p>
+        <p class="text-[11px] text-slate-600 mt-0.5">{{ "{:,}".format(d.sign_ins) }} sign-ins</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card p-4 mb-5 border-emerald-500/20 bg-emerald-500/5">
+      <p class="text-sm text-emerald-300">
+        No disagreements. Every policy this engine evaluated, Microsoft evaluated the same way.
+      </p>
+    </div>
+    {% endif %}
+
+    {% if ambiguous %}
+    <div class="card p-4 mb-5 border-amber-500/30">
+      <p class="text-xs font-semibold text-amber-300 mb-1">
+        Ambiguous condition sets ({{ ambiguous | length }})
+      </p>
+      <p class="text-[11px] text-slate-600 mb-2">
+        Sign-ins that look identical to the simulator got different real outcomes, so some
+        condition that matters is missing from how traffic is grouped. A finding about the
+        data, not the engine — but impact figures built on these are unreliable.
+      </p>
+      {% for item in ambiguous[:10] %}
+      <p class="text-[11px] text-slate-500 border-t border-slate-800/60 py-1">
+        {{ item.policy_name }} — {{ item.results }}
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post">
+      <input type="hidden" name="max_tuples" value="{{ report.tuples_compared }}">
+      <button type="submit" class="text-xs px-3 py-2 rounded-lg border border-slate-700 text-slate-400 hover:text-slate-200">
+        Run again
+      </button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

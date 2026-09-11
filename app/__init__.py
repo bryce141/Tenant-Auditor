@@ -77,12 +77,14 @@ def create_app():
             db.session.rollback()
 
         from app.routes import (auth, landing, dashboard, security, licensing, users,
-                                sharepoint, exchange, groups, reports, settings, tenants)
+                                sharepoint, exchange, groups, reports, settings, tenants,
+                                simulator)
         app.register_blueprint(auth.bp)
         app.register_blueprint(tenants.bp)
         app.register_blueprint(landing.bp)
         app.register_blueprint(dashboard.bp)
         app.register_blueprint(security.bp)
+        app.register_blueprint(simulator.bp)
         app.register_blueprint(licensing.bp)
         app.register_blueprint(users.bp)
         app.register_blueprint(sharepoint.bp)

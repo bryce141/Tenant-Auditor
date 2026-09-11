@@ -67,6 +67,22 @@ ALL_TRUSTED = "alltrusted"
 # spellings are folded onto it here rather than silently never matching.
 EAS_EQUIVALENTS = {"exchangeactivesync", "eassupported", "easunsupported"}
 
+# conditionalAccessClientApp, less "all" and less the deprecated EAS spellings
+# a builder should never emit.
+CLIENT_APP_TYPES_SUPPORTED = ["browser", "mobileAppsAndDesktopClients",
+                              "exchangeActiveSync", "other"]
+
+# conditionalAccessDevicePlatform, less "all". These are the platforms the
+# engine can match, and therefore the only ones the builder may offer.
+# tests/test_ca_builder.py asserts the two stay in step — a form offering a
+# condition the engine ignores produces drafts whose impact is all UNSUPPORTED.
+DEVICE_PLATFORMS_SUPPORTED = ["android", "iOS", "windows", "windowsPhone",
+                              "macOS", "linux"]
+
+# riskLevel values a policy may condition on. "hidden" is deliberately absent:
+# it is what an unlicensed tenant reports, not something anyone would target.
+RISK_LEVELS_SUPPORTED = ["low", "medium", "high"]
+
 
 @dataclass(frozen=True)
 class Evaluation:
