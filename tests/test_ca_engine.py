@@ -264,13 +264,38 @@ def test_application_exclusion_beats_inclusion():
     assert e.applies is False
 
 
-def test_office365_app_group_is_unsupported_not_a_literal_app_id():
-    # Treating "Office365" as an app id would never match, silently
+def test_office365_token_is_unsupported_when_membership_is_unresolved():
+    # Treating "Office365" as a literal app id would never match, silently
     # under-reporting a policy that covers most of the tenant.
     e = evaluate(policy(applications={"includeApplications": ["Office365"]}),
-                 conditions(), member())
+                 conditions(app_group_tokens=None), member())
     assert e.applies is None
-    assert "Office365" in " ".join(e.unsupported_conditions)
+    assert "app-group" in " ".join(e.unsupported_conditions)
+
+
+def test_office365_token_matches_a_resource_inside_the_suite():
+    p = policy(applications={"includeApplications": ["Office365"]})
+    assert evaluate(p, conditions(app_group_tokens=frozenset({"office365"})),
+                    member()).applies is True
+    assert evaluate(p, conditions(app_group_tokens=frozenset()),
+                    member()).applies is False
+
+
+def test_excluding_an_app_group_beats_including_all():
+    p = policy(applications={"includeApplications": ["All"],
+                             "excludeApplications": ["Office365"]})
+    assert evaluate(p, conditions(app_group_tokens=frozenset({"office365"})),
+                    member()).applies is False
+    assert evaluate(p, conditions(app_group_tokens=frozenset()),
+                    member()).applies is True
+
+
+def test_admin_portals_token_is_independent_of_office365():
+    p = policy(applications={"includeApplications": ["MicrosoftAdminPortals"]})
+    assert evaluate(p, conditions(app_group_tokens=frozenset({"microsoftadminportals"})),
+                    member()).applies is True
+    assert evaluate(p, conditions(app_group_tokens=frozenset({"office365"})),
+                    member()).applies is False
 
 
 def test_user_actions_are_unsupported():

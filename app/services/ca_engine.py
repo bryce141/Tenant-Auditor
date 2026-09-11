@@ -204,11 +204,15 @@ def _match_applications(applications, conditions):
     include = _lower_set(applications.get("includeApplications"))
     exclude = _lower_set(applications.get("excludeApplications"))
 
-    if (include | exclude) & APP_GROUP_TOKENS:
-        # Office365 / MicrosoftAdminPortals stand for a published set of app
-        # ids. Treating the token as a literal app id would never match and
-        # would silently under-report a policy that covers most of the tenant.
-        return None, "applications (Office365/MicrosoftAdminPortals not expanded)"
+    # Office365 / MicrosoftAdminPortals stand for a set of app ids rather than
+    # one. Treating the token as a literal app id would never match, silently
+    # under-reporting a policy that covers most of the tenant — and Microsoft
+    # recommends the Office 365 grouping over listing apps individually, so
+    # real policies use it constantly.
+    groups_wanted = (include | exclude) & APP_GROUP_TOKENS
+    in_groups = conditions.app_group_tokens
+    if groups_wanted and in_groups is None:
+        return None, "applications (app-group membership not resolved)"
 
     # The resource being accessed, not the client accessing it: "Conditional
     # Access applies to resources not clients… a policy set on SharePoint
@@ -222,12 +226,18 @@ def _match_applications(applications, conditions):
     if not resource_id:
         return None, "applications (sign-in reported no resourceId)"
 
+    groups = in_groups or frozenset()
+
     if resource_id in exclude:
         return False, "resource is excluded"
+    if groups & exclude:
+        return False, "resource is in an excluded app group"
     if NO_USERS in include:
         return False, "policy targets no applications"
     if ALL_USERS in include or resource_id in include:
         return True, "resource is in scope"
+    if groups & include:
+        return True, "resource is in an included app group"
     return False, "resource is not in scope"
 
 

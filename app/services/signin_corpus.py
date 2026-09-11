@@ -239,6 +239,10 @@ class ConditionTuple:
     # the different, definite claim that it matched none of them.
     named_location_ids: frozenset = None
     in_trusted_location: bool = False
+    # App-group tokens (Office365, MicrosoftAdminPortals) this resource belongs
+    # to. None means membership was never resolved, which the engine reports as
+    # UNSUPPORTED rather than as "not in the group".
+    app_group_tokens: frozenset = None
 
     def as_dict(self):
         return {
@@ -254,6 +258,8 @@ class ConditionTuple:
             "named_location_ids": (None if self.named_location_ids is None
                                    else sorted(self.named_location_ids)),
             "in_trusted_location": self.in_trusted_location,
+            "app_group_tokens": (None if self.app_group_tokens is None
+                                 else sorted(self.app_group_tokens)),
         }
 
 
@@ -424,7 +430,8 @@ def fetch_signins(client, days=30, max_records=None):
 # Reduce
 # ---------------------------------------------------------------------------
 
-def reduce_to_tuples(signins, window_days=30, truncated=False, locations=None):
+def reduce_to_tuples(signins, window_days=30, truncated=False, locations=None,
+                     app_groups=None):
     """Collapse raw sign-in records into a Corpus of distinct condition tuples.
 
     Pure: no Graph calls, so the whole reduction is testable against fixtures
@@ -488,6 +495,11 @@ def reduce_to_tuples(signins, window_days=30, truncated=False, locations=None):
             for reason in match.unsupported:
                 note_unmapped("namedLocations", reason)
 
+        group_tokens = None
+        if app_groups is not None:
+            membership = app_groups.resolve(signin.get("resourceId"))
+            group_tokens = membership.tokens if membership.resolved else None
+
         conditions = ConditionTuple(
             user_id=signin.get("userId"),
             # resourceId, not appId — CA targets the service being accessed,
@@ -505,6 +517,7 @@ def reduce_to_tuples(signins, window_days=30, truncated=False, locations=None):
             user_risk_level=user_risk,
             named_location_ids=location_ids,
             in_trusted_location=trusted_location,
+            app_group_tokens=group_tokens,
         )
 
         observation = by_key.get(conditions)
@@ -528,21 +541,30 @@ def reduce_to_tuples(signins, window_days=30, truncated=False, locations=None):
     return corpus
 
 
-def build_corpus(client, days=30, max_records=None, resolve_locations=True):
+def build_corpus(client, days=30, max_records=None, resolve_locations=True,
+                 resolve_app_groups=True):
     """Fetch and reduce in one step. Raises GraphError like any other Graph call."""
+    from app.services.ca_app_groups import AppGroupResolver, fetch_service_principals
     from app.services.ca_locations import LocationResolver, fetch_named_locations
     from app.services.graph_client import GraphError
 
+    # Either lookup failing leaves the corpus worth building: the engine
+    # reports the corresponding condition as unevaluable rather than guessing,
+    # which is the same honest answer it gave before these existed.
     locations = None
     if resolve_locations:
         try:
             locations = LocationResolver(fetch_named_locations(client))
         except GraphError:
-            # Without named locations the corpus is still worth building; the
-            # engine reports location conditions as unevaluable rather than
-            # guessing, which is the same honest answer as before.
             locations = None
+
+    app_groups = None
+    if resolve_app_groups:
+        try:
+            app_groups = AppGroupResolver(fetch_service_principals(client))
+        except GraphError:
+            app_groups = None
 
     signins, truncated = fetch_signins(client, days=days, max_records=max_records)
     return reduce_to_tuples(signins, window_days=days, truncated=truncated,
-                            locations=locations)
+                            locations=locations, app_groups=app_groups)
