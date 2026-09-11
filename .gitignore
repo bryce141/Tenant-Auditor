@@ -3,6 +3,10 @@
 .env.bak
 config.json
 
+# Test-user passwords written by scripts/seed_test_users.ps1. Real credentials
+# for real accounts in a real directory, however disposable the tenant is.
+test-users.json
+
 # Instance / database
 instance/
 data/
