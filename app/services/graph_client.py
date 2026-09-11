@@ -14,11 +14,15 @@ class GraphError(Exception):
     which is different from measuring it and finding it wanting.
     """
 
-    def __init__(self, message, status=None, endpoint=None):
+    def __init__(self, message, status=None, endpoint=None, retry_after=None):
         super().__init__(message)
         self.message = message
         self.status = status
         self.endpoint = endpoint
+        # Seconds Graph asked us to wait, from the Retry-After header on a 429.
+        # Without carrying it here a caller that wants to retry has to guess,
+        # and guessing low on a throttled tenant just extends the throttle.
+        self.retry_after = retry_after
 
     def __str__(self):
         return self.message
@@ -52,6 +56,15 @@ class GraphClient:
             pass
         return None
 
+    @staticmethod
+    def _retry_after(resp):
+        """Seconds from the Retry-After header, when Graph sent a usable one."""
+        try:
+            value = int(resp.headers.get("Retry-After", ""))
+        except (TypeError, ValueError):
+            return None
+        return value if value >= 0 else None
+
     def _raise_for(self, resp, endpoint):
         """Translate an unsuccessful response into GraphError."""
         detail = self._graph_message(resp)
@@ -64,7 +77,8 @@ class GraphClient:
                              status=404, endpoint=endpoint)
         if resp.status_code == 429:
             raise GraphError(f"Throttled by Graph ({endpoint})",
-                             status=429, endpoint=endpoint)
+                             status=429, endpoint=endpoint,
+                             retry_after=self._retry_after(resp))
 
         reason = detail or f"HTTP {resp.status_code}"
         raise GraphError(f"{reason} ({endpoint})",

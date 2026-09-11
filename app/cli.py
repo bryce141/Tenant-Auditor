@@ -11,6 +11,7 @@ silently not running is worse than the inconvenience of a crontab entry.
     flask digest --dry-run         # print it instead of sending
     flask scheduled-run            # audit everything, then send the digest
     flask ca-corpus --tenant X     # sign-in corpus stats for the CA simulator
+    flask ca-validate --tenant X   # prove the CA engine against Microsoft
 """
 import sys
 
@@ -224,8 +225,132 @@ def ca_corpus_command(tenant, days, max_records, show):
         raise SystemExit(1)
 
 
+@click.command("ca-validate")
+@click.option("--tenant", help="only this tenant (required when several exist)")
+@click.option("--days", default=30, show_default=True, help="sign-in window")
+@click.option("--max-records", type=int, help="cap the sign-ins fetched")
+@click.option("--max-tuples", type=int, default=100, show_default=True,
+              help="how many tuples to put through the evaluate endpoint")
+@click.option("--show", default=10, show_default=True,
+              help="how many disagreements to print")
+@with_appcontext
+def ca_validate_command(tenant, days, max_records, max_tuples, show):
+    """Check the CA engine against Microsoft's What If endpoint.
+
+    Evaluates the tenant's existing policies twice — through our engine and
+    through POST /identity/conditionalAccess/evaluate — and diffs the verdicts.
+    Exits non-zero on any disagreement, so this can gate a change to the engine.
+    """
+    from app.auth.graph_auth import get_headers
+    from app.services.ca_memberships import MembershipCache, resolve_for_corpus
+    from app.services.ca_validation import crosscheck_applied, validate
+    from app.services.graph_client import GraphClient, GraphError
+    from app.services.signin_corpus import build_corpus
+
+    tenants = _resolve(tenant)
+    if not tenants:
+        click.echo("No tenants configured.")
+        return
+
+    disagreed = False
+    for t in tenants:
+        click.echo(f"\n{t.name} ({t.tenant_id})")
+        click.echo("-" * 70)
+        try:
+            headers, tenant_id = get_headers(t)
+            client = GraphClient(headers)
+            policies = client.get_all("/identity/conditionalAccess/policies")
+            corpus = build_corpus(client, days=days, max_records=max_records)
+        except GraphError as e:
+            click.echo(f"  ERROR {e}")
+            disagreed = True
+            continue
+
+        if not policies:
+            click.echo("  No Conditional Access policies in this tenant — there is "
+                       "nothing to\n  validate the engine against. The harness needs a "
+                       "tenant with real policies.")
+            continue
+        if not corpus.observations:
+            click.echo(f"  No sign-ins in the last {days} days.")
+            continue
+
+        click.echo(f"  {len(policies)} policies, {corpus.total_sign_ins:,} sign-ins, "
+                   f"{len(corpus.observations):,} tuples")
+
+        memberships = resolve_for_corpus(client, corpus,
+                                         cache=MembershipCache(tenant_id))
+        if memberships.unresolved:
+            click.echo(f"  {len(memberships.unresolved)} user(s) could not be "
+                       "resolved — likely deleted since their sign-in")
+
+        report = validate(client, corpus, policies, memberships,
+                          max_tuples=max_tuples)
+        s = report.summary()
+
+        click.echo(f"\n  Against Microsoft's What If endpoint")
+        click.echo(f"    tuples compared   {s['tuples_compared']:,} "
+                   f"({s['coverage'] * 100:.0f}% of sign-ins)")
+        click.echo(f"    comparisons       {s['comparisons']:,}")
+        click.echo(f"    agreements        {s['agreements']:,}")
+        click.echo(f"    disagreements     {len(report.disagreements):,}")
+        if s["agreement_rate"] is not None:
+            click.echo(f"    agreement rate    {s['agreement_rate'] * 100:.2f}%")
+        if s["microsoft_uncertain"]:
+            click.echo(f"    both uncertain    {s['microsoft_uncertain']:,} "
+                       "(Microsoft returned notEnoughInformation)")
+
+        if s["unsupported"]:
+            click.echo("\n  Declared gaps — conditions the engine does not implement:")
+            for condition, count in sorted(s["unsupported"].items(),
+                                           key=lambda kv: -kv[1]):
+                click.echo(f"    {count:>6,}  {condition}")
+
+        if report.disagreements:
+            disagreed = True
+            click.echo(f"\n  DISAGREEMENTS (first {show}) — "
+                       "'they said' names the condition Microsoft blames:")
+            for d in report.disagreements[:show]:
+                click.echo(f"    {d.policy_name}")
+                click.echo(f"      we said applies={d.ours} ({d.our_reason})")
+                click.echo(f"      they said applies={d.theirs} ({d.their_reason})")
+                click.echo(f"      {d.sign_ins:,} sign-ins: {d.conditions}")
+
+        cross = crosscheck_applied(corpus, policies, memberships)
+        cs = cross.summary()
+        click.echo("\n  Against what the tenant actually did (sign-in log)")
+        click.echo(f"    comparisons       {cs['comparisons']:,}")
+        click.echo(f"    agreements        {cs['agreements']:,}")
+        click.echo(f"    disagreements     {cs['disagreements']:,}")
+        if cs["agreement_rate"] is not None:
+            click.echo(f"    agreement rate    {cs['agreement_rate'] * 100:.2f}%")
+        if cross.disagreements:
+            disagreed = True
+            for d in cross.disagreements[:show]:
+                click.echo(f"    {d.policy_name}: we said applies={d.ours}, "
+                           f"{d.their_reason}")
+        if cross.ambiguous:
+            # Not an engine bug: the tuple key is missing a condition that
+            # matters, so sign-ins that should be distinct got merged.
+            click.echo(f"\n  {len(cross.ambiguous)} tuple(s) whose own sign-ins "
+                       "disagree about whether a policy\n  applied. The tuple key is "
+                       "missing a condition — impact numbers built on\n  it will be "
+                       "wrong. Affected policies:")
+            for item in cross.ambiguous[:show]:
+                click.echo(f"    {item['policy_name']}: {item['results']}")
+
+        if report.errors:
+            click.echo(f"\n  {len(report.errors)} evaluate call(s) failed:")
+            for err in report.errors[:show]:
+                click.echo(f"    {err}")
+
+    if disagreed:
+        raise SystemExit(1)
+
+
 def register(app):
     app.cli.add_command(audit_command)
     app.cli.add_command(digest_command)
     app.cli.add_command(scheduled_run_command)
     app.cli.add_command(ca_corpus_command)
+    app.cli.add_command(ca_validate_command)
