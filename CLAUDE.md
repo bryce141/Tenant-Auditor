@@ -12,7 +12,8 @@ this file covers the conventions worth knowing before changing anything.
 - `services/` — Graph client, orchestration, scoring, export, comparison,
   digest, mail, formatting, crypto, remediation, plus the CA simulator
   (`signin_corpus`, `ca_memberships`, `ca_locations`, `ca_app_groups`,
-  `ca_engine`, `ca_validation`, `ca_impact`, `ca_builder`, `ca_workspace`)
+  `ca_engine`, `ca_validation`, `ca_impact`, `ca_builder`, `ca_workspace`,
+  `ca_recommendations`)
 - `routes/` — one blueprint per section
 - `models/` — `Report` + `ReportCheck`, `Tenant`, `AdminUser`, `Branding`
 - `cli.py` — `flask audit` / `digest` / `scheduled-run`, and
@@ -214,6 +215,18 @@ The pipeline, in the order the data flows:
    and by Microsoft, and the verdicts diffed.
 6. `ca_impact` — what a draft would change, as a **delta** against what the
    tenant already enforces.
+7. `ca_recommendations` — joins the audit to the simulator: the findings that a
+   CA policy would fix, each with the policy and what enabling it would cost.
+   `/simulator/recommendations`.
+
+`ca_recommendations` gives advice rather than reporting facts, so four things
+are load-bearing there. Only five of the twelve scored controls have a CA
+remedy — the rest are listed as out of scope *with where the fix actually
+lives*, or the page implies its list is the whole job. Partial remedies say they
+are partial (MFA for admins does not clear a standing-privilege finding; PIM
+does). One policy answering several findings appears once. And a recommendation
+whose impact could not be fully evaluated is never labelled safe, since it is
+otherwise indistinguishable from one that is.
 
 ### Rules that are not negotiable here
 

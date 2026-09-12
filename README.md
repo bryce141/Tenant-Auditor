@@ -32,6 +32,8 @@ engineering, and full-stack tooling.
 - **Credentials configured in the UI** — no redeploy to point at a new tenant
 - **Conditional Access simulator** — compose a draft CA policy and see which
   real users and sign-ins it would have broken, before it touches the tenant
+- **"What's missing"** — the audit's findings turned into the policies that fix
+  them, each priced against the tenant's own traffic
 
 ---
 
@@ -75,6 +77,27 @@ Conditions the engine cannot evaluate are reported as **declared gaps**, counted
 separately and never as agreement. A policy it cannot read is never silently
 scored as inapplicable — that would report the policy as breaking nobody, which
 is the one failure a simulator must not have.
+
+### What's missing
+
+The simulator answers "what would this policy break". `/simulator/recommendations`
+answers the reverse — which policies the tenant is missing, and what each would
+cost — by joining the audit's findings to the engine's impact assessment:
+
+```
+[SAFE]         Block legacy authentication
+               Would affect nobody — safe to enable
+               addresses: Legacy Auth Blocked (FAIL)
+
+[SIGNIFICANT]  Require MFA for administrators
+               149 sign-ins across 5 users would be affected
+               PARTIAL: PIM is the actual fix — this makes the role harder to
+                        use, not shorter-lived
+```
+
+Findings no Conditional Access policy can fix — SPF and DKIM, password policy,
+app credentials — are listed separately with where the fix does live, so the
+recommendations never read as the whole job.
 
 ### Command line
 
@@ -364,6 +387,7 @@ tenant-auditor/
     │   ├── ca_validation.py      # agreement harness vs Microsoft What If
     │   ├── ca_impact.py          # what a draft would change, as a delta
     │   ├── ca_builder.py         # form input → Graph policy JSON
+    │   ├── ca_recommendations.py # audit findings → priced policies
     │   └── ca_workspace.py       # per-tenant corpus cache
     ├── checks/                   # one module per category, each exposing run_all()
     │   ├── base.py               # @check decorator, GraphError to skip
