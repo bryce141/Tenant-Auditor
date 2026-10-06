@@ -193,5 +193,4 @@ decrypted and must be re-entered — decryption failure says so rather than
 returning junk. This protects a leaked database file, not someone who already
 holds the application environment.
 
-`config.json` and `.env` are gitignored and must stay that way. A live secret
-was committed to this repo once and the history had to be rewritten.
+`config.json` and `.env` are gitignored and must stay that way.
