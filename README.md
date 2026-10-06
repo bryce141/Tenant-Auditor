@@ -17,7 +17,7 @@ engineering, and full-stack tooling.
   data are never served to an anonymous visitor
 - **Multi-tenant** — audit any number of tenants from one install, switching
   between them without redeploying; client secrets encrypted at rest
-- **27 checks** across 8 categories — identity, conditional access, mail
+- **28 checks** across 8 categories — identity, conditional access, mail
   security, licensing, users, SharePoint, Exchange, and groups
 - **Weighted 0–100 score** over 110 points of CIS-mapped security controls
 - **Web dashboard** with score trend history and cross-category alerts
